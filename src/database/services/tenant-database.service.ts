@@ -5,8 +5,8 @@ import {
   Logger,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { DATABASE_MODULE_OPTIONS } from './constants';
-import type { DatabaseModuleOptions, TenantInfo } from './interfaces';
+import { DATABASE_MODULE_OPTIONS } from '../constants';
+import type { DatabaseModuleOptions, TenantInfo } from '../interfaces';
 import { TenantContextService } from './tenant-context.service';
 
 /**
@@ -21,12 +21,12 @@ import { TenantContextService } from './tenant-context.service';
  *
  * @example
  * // In a controller or service
- * const dbClient = await this.database.getDbClient<PrismaClient>();
+ * const dbClient = await this.tenantDatabase.getDbClient<PrismaClient>();
  * const users = await dbClient.user.findMany();
  */
 @Injectable()
-export class DatabaseService implements OnModuleDestroy {
-  private readonly logger = new Logger(DatabaseService.name);
+export class TenantDatabaseService implements OnModuleDestroy {
+  private readonly logger = new Logger(TenantDatabaseService.name);
 
   /** Connection pool: Map<cacheKey, DbClient> */
   private readonly clients = new Map<string, any>();
@@ -58,7 +58,7 @@ export class DatabaseService implements OnModuleDestroy {
    * @throws InternalServerErrorException if connection fails
    *
    * @example
-   * const dbClient = await database.getDbClient<PrismaClient>();
+   * const dbClient = await tenantDatabase.getDbClient<PrismaClient>();
    * const users = await dbClient.user.findMany();
    */
   async getDbClient<T = any>(): Promise<T> {
@@ -88,7 +88,7 @@ export class DatabaseService implements OnModuleDestroy {
   private async createDbClient(tenant: TenantInfo): Promise<any> {
     try {
       // Build tenant-specific database URL
-      const databaseUrl = this.buildConnectionUrl(tenant);
+      const databaseUrl = this.buildTenantDbUrl(tenant);
 
       // Load Prisma client constructor
       const PrismaClient = await this.options.prismaClientConstructor;
@@ -102,89 +102,19 @@ export class DatabaseService implements OnModuleDestroy {
       });
 
       await client.$connect();
-      this.logger.log(`Connected to database for tenant: ${tenant.tenantSlug}`);
+      this.logger.log(`Connected to database for tenant: ${tenant.slug}`);
 
       return client;
     } catch (error) {
-      this.logger.error(
-        `Failed to create database connection for tenant: ${tenant.tenantSlug}`,
-        error,
-      );
+      this.logger.error(`Failed to create database connection for tenant: ${tenant.slug}`, error);
       throw new InternalServerErrorException('Failed to connect to tenant database');
     }
   }
 
   /**
-   * Build connection URL based on tenant type
-   */
-  private buildConnectionUrl(tenant: TenantInfo): string {
-    if (tenant.tenantType === 'CLOUD') {
-      return this.buildCloudSchemaUrl(tenant);
-    } else {
-      return this.buildEnterpriseUrl(tenant);
-    }
-  }
-
-  /**
-   * Build connection URL for cloud tenant (shared database, separate schema)
-   */
-  private buildCloudSchemaUrl(tenant: TenantInfo): string {
-    // Cloud tenants can either share the primary DB or have their own connection config
-    // If tenant has its own connection config, use it. Otherwise, use primary DB config.
-
-    const {
-      databaseHost,
-      databasePort,
-      databaseName,
-      databaseUsername,
-      databasePassword,
-      databaseSslMode,
-    } = tenant;
-
-    // If tenant has custom connection config, use it
-    if (databaseHost && databaseName && databaseUsername) {
-      const port = databasePort || 5432;
-      const sslMode = databaseSslMode || 'require';
-      const schema = tenant.schemaName || 'public';
-
-      const connectionUrl = `postgresql://${databaseUsername}:${databasePassword}@${databaseHost}:${port}/${databaseName}?schema=${schema}&sslmode=${sslMode}`;
-
-      this.logger.debug(`Cloud (custom) connection URL: ${this.maskPassword(connectionUrl)}`);
-
-      return connectionUrl;
-    }
-
-    // Otherwise, use primary DB config with tenant schema
-    if (!this.options.primaryDb) {
-      throw new Error(
-        'Primary database configuration not provided. Required for CLOUD tenants without custom connection.',
-      );
-    }
-
-    if (!tenant.schemaName) {
-      throw new Error(`Cloud tenant ${tenant.tenantSlug} missing schema name`);
-    }
-
-    const {
-      host,
-      port = 5432,
-      username,
-      password,
-      database,
-      sslMode = 'require',
-    } = this.options.primaryDb;
-
-    const connectionUrl = `postgresql://${username}:${password}@${host}:${port}/${database}?schema=${tenant.schemaName}&sslmode=${sslMode}`;
-
-    this.logger.debug(`Cloud (shared) connection URL: ${this.maskPassword(connectionUrl)}`);
-
-    return connectionUrl;
-  }
-
-  /**
    * Build connection URL for enterprise tenant (dedicated database)
    */
-  private buildEnterpriseUrl(tenant: TenantInfo): string {
+  private buildTenantDbUrl(tenant: TenantInfo): string {
     const {
       databaseHost,
       databasePort,
@@ -195,7 +125,7 @@ export class DatabaseService implements OnModuleDestroy {
     } = tenant;
 
     if (!databaseHost || !databaseName || !databaseUsername) {
-      throw new Error(`Enterprise tenant ${tenant.tenantSlug} missing database configuration`);
+      throw new Error(`Enterprise tenant ${tenant.slug} missing database configuration`);
     }
 
     const port = databasePort || 5432;
@@ -211,11 +141,7 @@ export class DatabaseService implements OnModuleDestroy {
    * Build cache key for connection pooling
    */
   private buildCacheKey(tenant: TenantInfo): string {
-    if (tenant.tenantType === 'CLOUD') {
-      return `cloud:${tenant.schemaName}`;
-    } else {
-      return `enterprise:${tenant.databaseName}@${tenant.databaseHost}`;
-    }
+    return `${tenant.type}:${tenant.databaseName}@${tenant.databaseHost}`;
   }
 
   /**

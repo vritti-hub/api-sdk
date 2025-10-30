@@ -20,12 +20,12 @@ import type { DatabaseModuleOptions, TenantInfo } from '../interfaces';
  *
  * @example
  * // In API Gateway
- * const config = await tenantRegistry.getTenantConfig('acme');
+ * const config = await primaryDatabase.getTenantConfig('acme');
  * // Returns: { id, slug, type, databaseHost, databaseName, ... }
  */
 @Injectable()
-export class TenantConfigRegistryService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(TenantConfigRegistryService.name);
+export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PrimaryDatabaseService.name);
 
   /** Primary database client for querying tenant registry */
   private primaryDbClient: any;
@@ -55,7 +55,7 @@ export class TenantConfigRegistryService implements OnModuleInit, OnModuleDestro
    */
   private async initializePrimaryDbClient(): Promise<void> {
     try {
-      const PrimaryDbClient = await this.options.prismaClientConstructor();
+      const PrimaryDbClient = this.options.prismaClientConstructor;
 
       // Build connection URL from individual properties
       const databaseUrl = this.buildPrimaryDbUrl();
@@ -234,7 +234,7 @@ export class TenantConfigRegistryService implements OnModuleInit, OnModuleDestro
    * @returns Primary database client instance
    * @throws Error if primary database client is not initialized
    */
-  getPrimaryDbClient(): any {
+  getPrimaryDbClient<T = any>(): T {
     if (!this.primaryDbClient) {
       throw new Error('Primary database client not initialized. Are you in gateway mode?');
     }

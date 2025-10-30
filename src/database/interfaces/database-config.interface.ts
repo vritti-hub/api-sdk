@@ -77,11 +77,4 @@ export interface DatabaseModuleOptions {
    * Required if tenant config stores encrypted passwords
    */
   encryptionKey?: string;
-
-  /**
-   * Additional NestJS modules to import into DatabaseModule
-   * This allows child modules to benefit from the global interceptor
-   * @example modules: [TenantModule, UserModule]
-   */
-  modules?: any[];
 }

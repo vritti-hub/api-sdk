@@ -2,9 +2,9 @@
 export { DatabaseModule } from './database/database.module';
 
 // Services
-export { DatabaseService } from './database/services/database.service';
-export { TenantConfigRegistryService } from './database/services/tenant-config-registry.service';
+export { PrimaryDatabaseService } from './database/services/primary-database.service';
 export { TenantContextService } from './database/services/tenant-context.service';
+export { TenantDatabaseService } from './database/services/tenant-database.service';
 
 // Interceptors
 export { MessageTenantContextInterceptor } from './database/interceptors/message-tenant-context.interceptor';

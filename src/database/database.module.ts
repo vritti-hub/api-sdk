@@ -2,9 +2,9 @@ import { DynamicModule, Global, Module, Provider } from '@nestjs/common';
 import { DATABASE_MODULE_OPTIONS } from './constants';
 
 import type { DatabaseModuleOptions } from './interfaces';
-import { DatabaseService } from './services/database.service';
-import { TenantConfigRegistryService } from './services/tenant-config-registry.service';
+import { PrimaryDatabaseService } from './services/primary-database.service';
 import { TenantContextService } from './services/tenant-context.service';
+import { TenantDatabaseService } from './services/tenant-database.service';
 
 /**
  * Dynamic module for multi-tenant database management
@@ -60,15 +60,15 @@ export class DatabaseModule {
         provide: DATABASE_MODULE_OPTIONS,
         useValue: options,
       },
-      DatabaseService,
+      TenantDatabaseService,
       TenantContextService,
-      TenantConfigRegistryService,
+      PrimaryDatabaseService,
     ];
 
     return {
       module: DatabaseModule,
       providers,
-      exports: [DatabaseService, TenantContextService, TenantConfigRegistryService],
+      exports: [TenantDatabaseService, TenantContextService, PrimaryDatabaseService],
     };
   }
 
@@ -92,8 +92,6 @@ export class DatabaseModule {
    * })
    */
   static forRootAsync(options: {
-    imports?: any[];
-    modules?: any[];
     useFactory: (...args: any[]) => Promise<DatabaseModuleOptions> | DatabaseModuleOptions;
     inject?: any[];
   }): DynamicModule {
@@ -104,14 +102,13 @@ export class DatabaseModule {
     };
     return {
       module: DatabaseModule,
-      imports: [...(options.imports || []), ...(options.modules || [])],
       providers: [
         asyncProvider,
         TenantContextService,
-        TenantConfigRegistryService,
-        DatabaseService,
+        PrimaryDatabaseService,
+        TenantDatabaseService,
       ],
-      exports: [DatabaseService, TenantContextService, TenantConfigRegistryService],
+      exports: [TenantDatabaseService, TenantContextService, PrimaryDatabaseService, asyncProvider],
     };
   }
 }

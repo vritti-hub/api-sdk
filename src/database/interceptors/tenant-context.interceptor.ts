@@ -11,7 +11,7 @@ import {
 import { Observable } from 'rxjs';
 import { DATABASE_MODULE_OPTIONS } from '../constants';
 import type { DatabaseModuleOptions, TenantInfo } from '../interfaces';
-import { TenantConfigRegistryService } from '../services/tenant-config-registry.service';
+import { PrimaryDatabaseService } from '../services/primary-database.service';
 import { TenantContextService } from '../services/tenant-context.service';
 import { extractSubdomain } from '../utils/subdomain-parser.util';
 
@@ -36,7 +36,7 @@ export class TenantContextInterceptor implements NestInterceptor {
 
   constructor(
     private readonly tenantContext: TenantContextService,
-    private readonly tenantRegistry: TenantConfigRegistryService,
+    private readonly primaryDatabase: PrimaryDatabaseService,
     @Inject(DATABASE_MODULE_OPTIONS)
     private readonly options: DatabaseModuleOptions,
   ) {}
@@ -74,8 +74,8 @@ export class TenantContextInterceptor implements NestInterceptor {
         return next.handle();
       }
 
-      // Query cloud database for tenant configuration
-      const tenantConfig = await this.tenantRegistry.getTenantConfig(tenantIdentifier);
+      // Query primary database for tenant configuration
+      const tenantConfig = await this.primaryDatabase.getTenantConfig(tenantIdentifier);
 
       if (!tenantConfig) {
         this.logger.warn(`Invalid tenant: ${tenantIdentifier}`);
