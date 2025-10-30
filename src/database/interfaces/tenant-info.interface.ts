@@ -7,7 +7,7 @@ export interface TenantInfo {
   id: string;
 
   /** Human-readable tenant slug */
-  slug: string;
+  subDomain: string;
 
   /** Tenant type */
   type: 'SHARED' | 'DEDIACTED';

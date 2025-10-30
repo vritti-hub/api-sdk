@@ -128,7 +128,7 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
    * @param tenantIdentifier Tenant ID or slug
    * @returns Tenant configuration or null if not found
    */
-  async getTenantConfig(tenantIdentifier: string): Promise<TenantInfo | null> {
+  async getTenantInfo(tenantIdentifier: string): Promise<TenantInfo | null> {
     // Check cache first
     const cached = this.tenantConfigCache.get(tenantIdentifier);
     if (cached) {
@@ -146,7 +146,7 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
 
       const tenant = await this.primaryDbClient.tenant.findFirst({
         where: {
-          OR: [{ id: tenantIdentifier }, { slug: tenantIdentifier }],
+          OR: [{ id: tenantIdentifier }, { subDomain: tenantIdentifier }],
           status: 'ACTIVE',
         },
       });
@@ -156,10 +156,10 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
-      // Build config object
-      const config: TenantInfo = {
+      // Build info object
+      const info: TenantInfo = {
         id: tenant.id,
-        slug: tenant.slug,
+        subDomain: tenant.subDomain,
         type: tenant.type,
         status: tenant.status,
         schemaName: tenant.schemaName || undefined,
@@ -177,32 +177,32 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
       };
 
       // Cache by both ID and slug
-      this.cacheConfig(config);
+      this.cacheInfo(info);
 
-      return config;
+      return info;
     } catch (error) {
-      this.logger.error(`Failed to fetch tenant config: ${tenantIdentifier}`, error);
+      this.logger.error(`Failed to fetch tenant info: ${tenantIdentifier}`, error);
       throw new InternalServerErrorException('Failed to resolve tenant');
     }
   }
 
   /**
-   * Cache tenant configuration with TTL
+   * Cache tenant information with TTL
    */
-  private cacheConfig(config: TenantInfo): void {
-    this.tenantConfigCache.set(config.id, config);
-    this.tenantConfigCache.set(config.slug, config);
+  private cacheInfo(info: TenantInfo): void {
+    this.tenantConfigCache.set(info.id, info);
+    this.tenantConfigCache.set(info.subDomain, info);
 
     // Set expiration
     setTimeout(() => {
-      this.tenantConfigCache.delete(config.id);
-      this.tenantConfigCache.delete(config.slug);
-      this.logger.debug(`Cache expired for tenant: ${config.slug}`);
+      this.tenantConfigCache.delete(info.id);
+      this.tenantConfigCache.delete(info.subDomain);
+      this.logger.debug(`Cache expired for tenant: ${info.subDomain}`);
     }, this.cacheTTL);
   }
 
   /**
-   * Clear cached tenant configuration
+   * Clear cached tenant information
    *
    * Useful when tenant settings are updated and cache needs to be invalidated
    *
@@ -212,7 +212,7 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
     const config = this.tenantConfigCache.get(tenantIdentifier);
     if (config) {
       this.tenantConfigCache.delete(config.id);
-      this.tenantConfigCache.delete(config.slug);
+      this.tenantConfigCache.delete(config.subDomain);
       this.logger.log(`Cleared cache for tenant: ${tenantIdentifier}`);
     }
   }

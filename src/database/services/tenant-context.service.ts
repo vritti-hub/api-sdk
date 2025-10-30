@@ -84,11 +84,11 @@ export class TenantContextService {
   }
 
   /**
-   * Get tenant slug safely (returns null if not set)
+   * Get tenant subdomain safely (returns null if not set)
    *
-   * @returns Tenant slug or null
+   * @returns Tenant subdomain or null
    */
-  getTenantSlugSafe(): string | null {
-    return this.tenantInfo?.slug ?? null;
+  getTenantSubDomainSafe(): string | null {
+    return this.tenantInfo?.subDomain ?? null;
   }
 }

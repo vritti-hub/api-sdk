@@ -8,9 +8,10 @@ import {
   Scope,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { Observable } from 'rxjs';
 import { DATABASE_MODULE_OPTIONS } from '../constants';
-import type { DatabaseModuleOptions, TenantInfo } from '../interfaces';
+import type { DatabaseModuleOptions } from '../interfaces';
 import { PrimaryDatabaseService } from '../services/primary-database.service';
 import { TenantContextService } from '../services/tenant-context.service';
 import { extractSubdomain } from '../utils/subdomain-parser.util';
@@ -19,16 +20,19 @@ import { extractSubdomain } from '../utils/subdomain-parser.util';
  * Interceptor that extracts tenant context from HTTP requests (Gateway Mode)
  *
  * This interceptor runs BEFORE the controller and:
- * 1. Extracts tenant identifier from request (subdomain, header, or JWT)
- * 2. Queries cloud database for tenant configuration
+ * 1. Extracts tenant identifier from request (tries subdomain first, then falls back to header)
+ * 2. Queries primary database for tenant configuration
  * 3. Stores tenant info in REQUEST-SCOPED TenantContextService
  *
- * Only used in API Gateway where tenantResolver is configured.
- * Microservices use MessageTenantContextInterceptor instead.
+ * Tenant resolution order:
+ * - First: Subdomain (e.g., acme.vritti.com → 'acme')
+ * - Fallback: x-tenant-id or x-tenant-slug header
+ *
+ * Only used in API Gateway. Microservices use MessageTenantContextInterceptor instead.
  *
  * @example
  * // Request: https://acme.vritti.com/api/users
- * // Interceptor extracts "acme", queries cloud DB, sets context
+ * // Interceptor extracts "acme" from subdomain, queries primary DB, sets context
  */
 @Injectable({ scope: Scope.REQUEST })
 export class TenantContextInterceptor implements NestInterceptor {
@@ -43,7 +47,6 @@ export class TenantContextInterceptor implements NestInterceptor {
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
     const request = context.switchToHttp().getRequest();
-    console.log(request.headers);
 
     this.logger.debug(`Processing request: ${request.method} ${request.url}`);
 
@@ -59,43 +62,32 @@ export class TenantContextInterceptor implements NestInterceptor {
 
       // Special case: cloud.vritti.com (platform admin)
       if (tenantIdentifier === 'cloud') {
-        const cloudTenantInfo: TenantInfo = {
-          id: 'cloud',
-          slug: 'cloud',
-          type: 'SHARED',
-          schemaName: 'cloud',
-          status: 'ACTIVE',
-        };
-
-        this.tenantContext.setTenant(cloudTenantInfo);
-        (request as any).tenant = cloudTenantInfo;
-
-        this.logger.log('Cloud tenant context set (platform mode)');
+        this.logger.log('Cloud platform access detected, skipping tenant context setup');
         return next.handle();
       }
 
       // Query primary database for tenant configuration
-      const tenantConfig = await this.primaryDatabase.getTenantConfig(tenantIdentifier);
+      const tenantInfo = await this.primaryDatabase.getTenantInfo(tenantIdentifier);
 
-      if (!tenantConfig) {
+      if (!tenantInfo) {
         this.logger.warn(`Invalid tenant: ${tenantIdentifier}`);
         throw new UnauthorizedException('Invalid tenant');
       }
 
-      if (tenantConfig.status !== 'ACTIVE') {
-        this.logger.warn(`Tenant ${tenantIdentifier} has status: ${tenantConfig.status}`);
-        throw new UnauthorizedException(`Tenant is ${tenantConfig.status}`);
+      if (tenantInfo.status !== 'ACTIVE') {
+        this.logger.warn(`Tenant ${tenantIdentifier} has status: ${tenantInfo.status}`);
+        throw new UnauthorizedException(`Tenant is ${tenantInfo.status}`);
       }
 
-      this.logger.debug(`Tenant config loaded: ${tenantConfig.slug} (${tenantConfig.type})`);
+      this.logger.debug(`Tenant config loaded: ${tenantInfo.subDomain} (${tenantInfo.type})`);
 
       // Store in REQUEST-SCOPED context
-      this.tenantContext.setTenant(tenantConfig);
+      this.tenantContext.setTenant(tenantInfo);
 
       // Also attach to request object for easy access
-      (request as any).tenant = tenantConfig;
+      (request as any).tenant = tenantInfo;
 
-      this.logger.log(`Tenant context set: ${tenantConfig.slug}`);
+      this.logger.log(`Tenant context set: ${tenantInfo.subDomain}`);
     } catch (error) {
       this.logger.error('Failed to set tenant context', error);
       throw error;
@@ -105,32 +97,28 @@ export class TenantContextInterceptor implements NestInterceptor {
   }
 
   /**
-   * Extract tenant identifier from request based on configured strategy
+   * Extract tenant identifier: tries subdomain first, then falls back to header
    */
-  private extractTenantIdentifier(request: any): string | null {
-    const strategy = this.options.tenantResolver || 'subdomain';
+  private extractTenantIdentifier(request: FastifyRequest): string | null {
+    // Try subdomain first
+    let tenantIdentifier = this.extractFromSubdomain(request);
 
-    switch (strategy) {
-      case 'subdomain':
-        return this.extractFromSubdomain(request);
-
-      case 'header':
-        return this.extractFromHeader(request);
-
-      case 'jwt':
-        return this.extractFromJWT(request);
-
-      default:
-        this.logger.warn(`Unknown tenant resolver strategy: ${strategy}`);
-        return null;
+    // Fallback to header if subdomain not found
+    if (!tenantIdentifier) {
+      tenantIdentifier = this.extractFromHeader(request);
+      if (tenantIdentifier) {
+        this.logger.debug('Using tenant from header (subdomain not found)');
+      }
     }
+
+    return tenantIdentifier;
   }
 
   /**
    * Extract tenant from subdomain
    * @example acme.vritti.com → 'acme'
    */
-  private extractFromSubdomain(request: any): string | null {
+  private extractFromSubdomain(request: FastifyRequest): string | null {
     // Check if middleware already extracted it
     if ((request as any).subdomain) {
       return (request as any).subdomain;
@@ -143,22 +131,14 @@ export class TenantContextInterceptor implements NestInterceptor {
 
   /**
    * Extract tenant from HTTP headers
-   * Checks x-tenant-id and x-tenant-slug headers
+   * Checks x-tenant-id and x-subdomain headers
    */
-  private extractFromHeader(request: any): string | null {
-    return request.headers?.['x-tenant-id'] || request.headers?.['x-tenant-slug'] || null;
-  }
+  private extractFromHeader(request: FastifyRequest): string | null {
+    const getHeader = (key: string) => {
+      const value = request.headers?.[key];
+      return Array.isArray(value) ? value[0] : value;
+    };
 
-  /**
-   * Extract tenant from decoded JWT token
-   * Assumes JwtAuthGuard has already run and set request.user
-   */
-  private extractFromJWT(request: any): string | null {
-    if (!request.user) {
-      this.logger.warn('JWT strategy selected but request.user is not set');
-      return null;
-    }
-
-    return request.user.tenantId || request.user.tenantSlug || null;
+    return getHeader('x-tenant-id') || getHeader('x-subdomain') || null;
   }
 }

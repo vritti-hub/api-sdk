@@ -16,13 +16,12 @@ import { TenantDatabaseService } from './services/tenant-database.service';
  * - Support for both gateway and microservice modes
  *
  * ## Gateway Mode (API Gateway)
- * - Set tenantResolver: 'subdomain' | 'header' | 'jwt'
- * - Provide databaseUrl and primaryDbConstructor
+ * - Automatically extracts tenant from subdomain, falls back to x-tenant-id header
+ * - Provide primaryDb configuration and prismaClientConstructor
  * - Automatically queries primary DB for tenant config
  * - Attaches TenantContextInterceptor globally
  *
  * ## Microservice Mode
- * - Don't set tenantResolver
  * - Only provide prismaClientConstructor
  * - Tenant context comes from RabbitMQ messages
  * - Use MessageTenantContextInterceptor manually
@@ -32,9 +31,14 @@ import { TenantDatabaseService } from './services/tenant-database.service';
  * DatabaseModule.forRootAsync({
  *   imports: [ConfigModule],
  *   useFactory: (config: ConfigService) => ({
- *     databaseUrl: config.get('DATABASE_URL'),
- *     primaryDbClientConstructor: PrismaClient,
- *     tenantResolver: 'subdomain',
+ *     primaryDb: {
+ *       host: config.get('PRIMARY_DB_HOST'),
+ *       port: config.get('PRIMARY_DB_PORT'),
+ *       username: config.get('PRIMARY_DB_USERNAME'),
+ *       password: config.get('PRIMARY_DB_PASSWORD'),
+ *       database: config.get('PRIMARY_DB_DATABASE'),
+ *     },
+ *     prismaClientConstructor: PrismaClient,
  *   }),
  *   inject: [ConfigService],
  * })

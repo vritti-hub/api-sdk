@@ -52,14 +52,6 @@ export interface DatabaseModuleOptions {
   prismaClientConstructor: any;
 
   /**
-   * Tenant resolution strategy (gateway mode only)
-   * - 'subdomain': Extract from request host (e.g., acme.vritti.com -> 'acme')
-   * - 'header': Extract from x-tenant-id or x-tenant-slug header
-   * - 'jwt': Extract from decoded JWT token (request.user.tenantId)
-   */
-  tenantResolver: 'subdomain' | 'header' | 'jwt';
-
-  /**
    * Connection cache TTL in milliseconds
    * Idle connections will be closed after this period
    * @default 300000 (5 minutes)
