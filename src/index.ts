@@ -11,8 +11,7 @@ export { MessageTenantContextInterceptor } from './database/interceptors/message
 export { TenantContextInterceptor } from './database/interceptors/tenant-context.interceptor';
 
 // Decorators
-export { MessageTenant } from './database/decorators/message-tenant.decorator';
-export { TenantPrisma } from './database/decorators/tenant-prisma.decorator';
+
 export { Tenant } from './database/decorators/tenant.decorator';
 
 // Interfaces
