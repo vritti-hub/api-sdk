@@ -51,16 +51,11 @@ import { TenantContextService } from '../services/tenant-context.service';
 export const Tenant = createParamDecorator((data: unknown, ctx: ExecutionContext): TenantInfo => {
   const request = ctx.switchToHttp().getRequest();
 
-  // Option 1: Get from request object (set by interceptor)
-  if ((request as any).tenant) {
-    return (request as any).tenant;
-  }
-
-  // Option 2: Get from TenantContextService
+  // Get from TenantContextService
   const tenantContext = request.app?.get?.(TenantContextService);
 
   if (!tenantContext) {
-    throw new Error('TenantContextService not found. Did you import DatabaseModule?');
+    throw new Error('TenantContextService not found.');
   }
 
   return tenantContext.getTenant();
