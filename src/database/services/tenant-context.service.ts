@@ -88,7 +88,7 @@ export class TenantContextService {
    *
    * @returns Tenant subdomain or null
    */
-  getTenantSubDomainSafe(): string | null {
-    return this.tenantInfo?.subDomain ?? null;
+  getTenantSubdomainSafe(): string | null {
+    return this.tenantInfo?.subdomain ?? null;
   }
 }

@@ -159,7 +159,7 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
       // Build info object
       const info: TenantInfo = {
         id: tenant.id,
-        subDomain: tenant.subDomain,
+        subdomain: tenant.subdomain,
         type: tenant.type,
         status: tenant.status,
         schemaName: tenant.schemaName || undefined,
@@ -191,13 +191,13 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
    */
   private cacheInfo(info: TenantInfo): void {
     this.tenantConfigCache.set(info.id, info);
-    this.tenantConfigCache.set(info.subDomain, info);
+    this.tenantConfigCache.set(info.subdomain, info);
 
     // Set expiration
     setTimeout(() => {
       this.tenantConfigCache.delete(info.id);
-      this.tenantConfigCache.delete(info.subDomain);
-      this.logger.debug(`Cache expired for tenant: ${info.subDomain}`);
+      this.tenantConfigCache.delete(info.subdomain);
+      this.logger.debug(`Cache expired for tenant: ${info.subdomain}`);
     }, this.cacheTTL);
   }
 
@@ -212,7 +212,7 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
     const config = this.tenantConfigCache.get(tenantIdentifier);
     if (config) {
       this.tenantConfigCache.delete(config.id);
-      this.tenantConfigCache.delete(config.subDomain);
+      this.tenantConfigCache.delete(config.subdomain);
       this.logger.log(`Cleared cache for tenant: ${tenantIdentifier}`);
     }
   }

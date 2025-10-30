@@ -57,11 +57,11 @@ export class MessageTenantContextInterceptor implements NestInterceptor {
       if (payload && payload.tenant) {
         const tenant = payload.tenant as TenantInfo;
 
-        this.logger.debug(`Setting tenant context from message: ${tenant.subDomain}`);
+        this.logger.debug(`Setting tenant context from message: ${tenant.subdomain}`);
 
         try {
           this.tenantContext.setTenant(tenant);
-          this.logger.log(`Tenant context set: ${tenant.subDomain} (${tenant.type})`);
+          this.logger.log(`Tenant context set: ${tenant.subdomain} (${tenant.type})`);
         } catch (error) {
           this.logger.error('Failed to set tenant context from message', error);
         }

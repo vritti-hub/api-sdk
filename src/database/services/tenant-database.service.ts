@@ -102,12 +102,12 @@ export class TenantDatabaseService implements OnModuleDestroy {
       });
 
       await client.$connect();
-      this.logger.log(`Connected to database for tenant: ${tenant.subDomain}`);
+      this.logger.log(`Connected to database for tenant: ${tenant.subdomain}`);
 
       return client;
     } catch (error) {
       this.logger.error(
-        `Failed to create database connection for tenant: ${tenant.subDomain}`,
+        `Failed to create database connection for tenant: ${tenant.subdomain}`,
         error,
       );
       throw new InternalServerErrorException('Failed to connect to tenant database');
@@ -128,7 +128,7 @@ export class TenantDatabaseService implements OnModuleDestroy {
     } = tenant;
 
     if (!databaseHost || !databaseName || !databaseUsername) {
-      throw new Error(`Enterprise tenant ${tenant.subDomain} missing database configuration`);
+      throw new Error(`Enterprise tenant ${tenant.subdomain} missing database configuration`);
     }
 
     const port = databasePort || 5432;

@@ -79,7 +79,7 @@ export class TenantContextInterceptor implements NestInterceptor {
         throw new UnauthorizedException(`Tenant is ${tenantInfo.status}`);
       }
 
-      this.logger.debug(`Tenant config loaded: ${tenantInfo.subDomain} (${tenantInfo.type})`);
+      this.logger.debug(`Tenant config loaded: ${tenantInfo.subdomain} (${tenantInfo.type})`);
 
       // Store in REQUEST-SCOPED context
       this.tenantContext.setTenant(tenantInfo);
@@ -87,7 +87,7 @@ export class TenantContextInterceptor implements NestInterceptor {
       // Also attach to request object for easy access
       (request as any).tenant = tenantInfo;
 
-      this.logger.log(`Tenant context set: ${tenantInfo.subDomain}`);
+      this.logger.log(`Tenant context set: ${tenantInfo.subdomain}`);
     } catch (error) {
       this.logger.error('Failed to set tenant context', error);
       throw error;
