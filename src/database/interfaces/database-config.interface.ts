@@ -1,0 +1,87 @@
+/**
+ * Primary database connection configuration
+ */
+export interface PrimaryDbConfig {
+  /** Database host */
+  host: string;
+
+  /** Database port (default: 5432) */
+  port?: number;
+
+  /** Database username */
+  username: string;
+
+  /** Database password */
+  password: string;
+
+  /** Database name */
+  database: string;
+
+  /** Default schema (default: 'public') */
+  schema?: string;
+
+  /** SSL mode: 'require' | 'prefer' | 'disable' (default: 'require') */
+  sslMode?: 'require' | 'prefer' | 'disable';
+}
+
+/**
+ * Configuration options for DatabaseModule
+ */
+export interface DatabaseModuleOptions {
+  /**
+   * Primary database configuration (for tenant registry queries)
+   * Only required in gateway mode
+   * @example
+   * primaryDb: {
+   *   host: 'aws-pooler.supabase.com',
+   *   port: 5432,
+   *   username: 'postgres.xxx',
+   *   password: 'xxx',
+   *   database: 'postgres',
+   *   schema: 'public',
+   *   sslMode: 'require',
+   * }
+   */
+  primaryDb: PrimaryDbConfig;
+
+  /**
+   * Primary database client constructor (for querying tenant registry)
+   * Only required in gateway mode
+   * @example import { PrismaClient } from '@prisma/client'
+   */
+  prismaClientConstructor: any;
+
+  /**
+   * Tenant resolution strategy (gateway mode only)
+   * - 'subdomain': Extract from request host (e.g., acme.vritti.com -> 'acme')
+   * - 'header': Extract from x-tenant-id or x-tenant-slug header
+   * - 'jwt': Extract from decoded JWT token (request.user.tenantId)
+   */
+  tenantResolver: 'subdomain' | 'header' | 'jwt';
+
+  /**
+   * Connection cache TTL in milliseconds
+   * Idle connections will be closed after this period
+   * @default 300000 (5 minutes)
+   */
+  connectionCacheTTL?: number;
+
+  /**
+   * Maximum number of concurrent connections per tenant
+   * @default 10
+   */
+  maxConnections?: number;
+
+  /**
+   * Encryption key for decrypting database credentials
+   * Required if tenant config stores encrypted passwords
+   */
+  encryptionKey?: string;
+
+  /**
+   * Additional NestJS modules to import into DatabaseModule
+   * This allows child modules to benefit from the global interceptor
+   * @example modules: [TenantModule, UserModule]
+   */
+  modules?: any[];
+}

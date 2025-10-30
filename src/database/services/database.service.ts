@@ -1,0 +1,309 @@
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  OnModuleDestroy,
+} from '@nestjs/common';
+import { DATABASE_MODULE_OPTIONS } from './constants';
+import type { DatabaseModuleOptions, TenantInfo } from './interfaces';
+import { TenantContextService } from './tenant-context.service';
+
+/**
+ * Service responsible for managing tenant-scoped database connections
+ *
+ * This service:
+ * - Maintains a connection pool (Map<cacheKey, DbClient>)
+ * - Creates new connections dynamically based on tenant context
+ * - Reuses existing connections for the same tenant
+ * - Supports both cloud schemas and enterprise databases
+ * - Automatically cleans up idle connections
+ *
+ * @example
+ * // In a controller or service
+ * const dbClient = await this.database.getDbClient<PrismaClient>();
+ * const users = await dbClient.user.findMany();
+ */
+@Injectable()
+export class DatabaseService implements OnModuleDestroy {
+  private readonly logger = new Logger(DatabaseService.name);
+
+  /** Connection pool: Map<cacheKey, DbClient> */
+  private readonly clients = new Map<string, any>();
+
+  /** Track last usage time for idle connection cleanup */
+  private readonly clientLastUsed = new Map<string, number>();
+
+  /** Cleanup interval timer */
+  private cleanupInterval?: NodeJS.Timeout;
+
+  constructor(
+    @Inject(DATABASE_MODULE_OPTIONS)
+    private readonly options: DatabaseModuleOptions,
+    private readonly tenantContext: TenantContextService,
+  ) {
+    this.startConnectionCleaner();
+  }
+
+  /**
+   * Get tenant-scoped database client for the current request/message
+   *
+   * This method:
+   * 1. Gets tenant info from TenantContextService
+   * 2. Builds a connection URL based on tenant type
+   * 3. Returns cached client if exists, otherwise creates new one
+   *
+   * @returns Promise<Database client instance>
+   * @throws UnauthorizedException if tenant context not set
+   * @throws InternalServerErrorException if connection fails
+   *
+   * @example
+   * const dbClient = await database.getDbClient<PrismaClient>();
+   * const users = await dbClient.user.findMany();
+   */
+  async getDbClient<T = any>(): Promise<T> {
+    const tenant = this.tenantContext.getTenant();
+
+    const cacheKey = this.buildCacheKey(tenant);
+
+    // Check if connection already exists
+    if (this.clients.has(cacheKey)) {
+      this.clientLastUsed.set(cacheKey, Date.now());
+      this.logger.debug(`Reusing cached connection: ${cacheKey}`);
+      return this.clients.get(cacheKey) as T;
+    }
+
+    // Create new connection
+    this.logger.log(`Creating new database connection: ${cacheKey}`);
+    const client = await this.createDbClient(tenant);
+    this.clients.set(cacheKey, client);
+    this.clientLastUsed.set(cacheKey, Date.now());
+
+    return client as T;
+  }
+
+  /**
+   * Create a new database client for the given tenant
+   */
+  private async createDbClient(tenant: TenantInfo): Promise<any> {
+    try {
+      // Build tenant-specific database URL
+      const databaseUrl = this.buildConnectionUrl(tenant);
+
+      // Load Prisma client constructor
+      const PrismaClient = await this.options.prismaClientConstructor;
+
+      // Create new instance with tenant-specific connection
+      const client = new PrismaClient({
+        datasources: {
+          db: { url: databaseUrl },
+        },
+        log: ['error', 'warn'],
+      });
+
+      await client.$connect();
+      this.logger.log(`Connected to database for tenant: ${tenant.tenantSlug}`);
+
+      return client;
+    } catch (error) {
+      this.logger.error(
+        `Failed to create database connection for tenant: ${tenant.tenantSlug}`,
+        error,
+      );
+      throw new InternalServerErrorException('Failed to connect to tenant database');
+    }
+  }
+
+  /**
+   * Build connection URL based on tenant type
+   */
+  private buildConnectionUrl(tenant: TenantInfo): string {
+    if (tenant.tenantType === 'CLOUD') {
+      return this.buildCloudSchemaUrl(tenant);
+    } else {
+      return this.buildEnterpriseUrl(tenant);
+    }
+  }
+
+  /**
+   * Build connection URL for cloud tenant (shared database, separate schema)
+   */
+  private buildCloudSchemaUrl(tenant: TenantInfo): string {
+    // Cloud tenants can either share the primary DB or have their own connection config
+    // If tenant has its own connection config, use it. Otherwise, use primary DB config.
+
+    const {
+      databaseHost,
+      databasePort,
+      databaseName,
+      databaseUsername,
+      databasePassword,
+      databaseSslMode,
+    } = tenant;
+
+    // If tenant has custom connection config, use it
+    if (databaseHost && databaseName && databaseUsername) {
+      const port = databasePort || 5432;
+      const sslMode = databaseSslMode || 'require';
+      const schema = tenant.schemaName || 'public';
+
+      const connectionUrl = `postgresql://${databaseUsername}:${databasePassword}@${databaseHost}:${port}/${databaseName}?schema=${schema}&sslmode=${sslMode}`;
+
+      this.logger.debug(`Cloud (custom) connection URL: ${this.maskPassword(connectionUrl)}`);
+
+      return connectionUrl;
+    }
+
+    // Otherwise, use primary DB config with tenant schema
+    if (!this.options.primaryDb) {
+      throw new Error(
+        'Primary database configuration not provided. Required for CLOUD tenants without custom connection.',
+      );
+    }
+
+    if (!tenant.schemaName) {
+      throw new Error(`Cloud tenant ${tenant.tenantSlug} missing schema name`);
+    }
+
+    const {
+      host,
+      port = 5432,
+      username,
+      password,
+      database,
+      sslMode = 'require',
+    } = this.options.primaryDb;
+
+    const connectionUrl = `postgresql://${username}:${password}@${host}:${port}/${database}?schema=${tenant.schemaName}&sslmode=${sslMode}`;
+
+    this.logger.debug(`Cloud (shared) connection URL: ${this.maskPassword(connectionUrl)}`);
+
+    return connectionUrl;
+  }
+
+  /**
+   * Build connection URL for enterprise tenant (dedicated database)
+   */
+  private buildEnterpriseUrl(tenant: TenantInfo): string {
+    const {
+      databaseHost,
+      databasePort,
+      databaseName,
+      databaseUsername,
+      databasePassword,
+      databaseSslMode,
+    } = tenant;
+
+    if (!databaseHost || !databaseName || !databaseUsername) {
+      throw new Error(`Enterprise tenant ${tenant.tenantSlug} missing database configuration`);
+    }
+
+    const port = databasePort || 5432;
+    const sslMode = databaseSslMode || 'require';
+    const connectionUrl = `postgresql://${databaseUsername}:${databasePassword}@${databaseHost}:${port}/${databaseName}?sslmode=${sslMode}`;
+
+    this.logger.debug(`Enterprise connection URL: ${this.maskPassword(connectionUrl)}`);
+
+    return connectionUrl;
+  }
+
+  /**
+   * Build cache key for connection pooling
+   */
+  private buildCacheKey(tenant: TenantInfo): string {
+    if (tenant.tenantType === 'CLOUD') {
+      return `cloud:${tenant.schemaName}`;
+    } else {
+      return `enterprise:${tenant.databaseName}@${tenant.databaseHost}`;
+    }
+  }
+
+  /**
+   * Start periodic cleanup of idle connections
+   */
+  private startConnectionCleaner(): void {
+    const interval = this.options.connectionCacheTTL || 300000; // 5 minutes
+
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupIdleConnections();
+    }, interval);
+
+    this.logger.log(`Connection cleanup scheduled every ${interval / 1000} seconds`);
+  }
+
+  /**
+   * Clean up idle connections that haven't been used recently
+   */
+  private cleanupIdleConnections(): void {
+    const now = Date.now();
+    const maxIdle = this.options.connectionCacheTTL || 300000;
+
+    let cleaned = 0;
+
+    for (const [key, lastUsed] of this.clientLastUsed.entries()) {
+      if (now - lastUsed > maxIdle) {
+        const client = this.clients.get(key);
+        if (client) {
+          client
+            .$disconnect()
+            .then(() => {
+              this.logger.debug(`Cleaned up idle connection: ${key}`);
+            })
+            .catch((error: any) => {
+              this.logger.error(`Error disconnecting idle client: ${key}`, error);
+            });
+
+          this.clients.delete(key);
+          this.clientLastUsed.delete(key);
+          cleaned++;
+        }
+      }
+    }
+
+    if (cleaned > 0) {
+      this.logger.log(`Cleaned up ${cleaned} idle connections`);
+    }
+  }
+
+  /**
+   * Get current connection pool statistics
+   */
+  getPoolStats(): {
+    activeConnections: number;
+    tenants: string[];
+  } {
+    return {
+      activeConnections: this.clients.size,
+      tenants: Array.from(this.clients.keys()),
+    };
+  }
+
+  /**
+   * Mask password in connection URL for logging
+   */
+  private maskPassword(url: string): string {
+    return url.replace(/:([^@]+)@/, ':****@');
+  }
+
+  async onModuleDestroy() {
+    // Stop cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+
+    // Disconnect all clients
+    this.logger.log(`Disconnecting ${this.clients.size} database connections`);
+
+    const disconnectPromises = Array.from(this.clients.entries()).map(async ([key, client]) => {
+      try {
+        await client.$disconnect();
+        this.logger.debug(`Disconnected: ${key}`);
+      } catch (error) {
+        this.logger.error(`Error disconnecting client: ${key}`, error);
+      }
+    });
+
+    await Promise.all(disconnectPromises);
+    this.logger.log('All database connections closed');
+  }
+}

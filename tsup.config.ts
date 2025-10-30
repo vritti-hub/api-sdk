@@ -7,8 +7,13 @@ export default defineConfig({
   // Output formats
   format: ['cjs', 'esm'],
 
-  // Generate .d.ts files
-  dts: true,
+  // Generate .d.ts files - resolve() function allows handling optional deps
+  dts: {
+    resolve: true,
+    compilerOptions: {
+      skipLibCheck: true,
+    },
+  },
 
   // Clean output directory before build
   clean: true,
@@ -19,8 +24,8 @@ export default defineConfig({
   // Minify in production
   minify: process.env.NODE_ENV === 'production',
 
-  // Target Node version
-  target: 'node18',
+  // Target ES2022 for modern features
+  target: 'es2022',
 
   // Output directory
   outDir: 'dist',
@@ -34,6 +39,22 @@ export default defineConfig({
   // Skip node_modules bundling
   skipNodeModulesBundle: true,
 
-  // Keep names (for debugging)
+  // Keep class names for decorators
   keepNames: true,
+
+  // External dependencies - don't bundle peer dependencies or optional Prisma clients
+  external: [
+    '@nestjs/common',
+    '@nestjs/core',
+    'reflect-metadata',
+    'rxjs',
+    '@prisma/client',
+    '@prisma/cloud-client',
+  ],
+
+  // Platform configuration for Node.js
+  platform: 'node',
+
+  // Reference tsconfig for decorator metadata
+  tsconfig: './tsconfig.json',
 });
