@@ -1,6 +1,9 @@
 /**
  * Tenant configuration stored in cloud database
  * This is the shape of data returned from the tenant registry
+ *
+ * Note: Database configuration is now stored in a separate TenantDatabaseConfig table
+ * but is flattened into this interface for convenience.
  */
 export interface TenantInfo {
   /** Unique tenant identifier */
@@ -9,16 +12,16 @@ export interface TenantInfo {
   /** Human-readable tenant slug */
   subdomain: string;
 
-  /** Tenant type */
-  type: 'SHARED' | 'DEDIACTED';
+  /** Tenant type - SHARED or DEDICATED */
+  type: 'SHARED' | 'DEDICATED';
 
   /** Tenant status */
   status: string;
 
-  /** For CLOUD tenants: schema name */
+  /** For SHARED tenants: schema name within the shared database */
   schemaName?: string;
 
-  /** For ENTERPRISE tenants: database configuration */
+  /** For DEDICATED tenants: database configuration (from TenantDatabaseConfig table) */
   databaseName?: string;
   databaseHost?: string;
   databasePort?: number;

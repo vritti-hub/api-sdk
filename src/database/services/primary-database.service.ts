@@ -146,8 +146,11 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
 
       const tenant = await this.primaryDbClient.tenant.findFirst({
         where: {
-          OR: [{ id: tenantIdentifier }, { subDomain: tenantIdentifier }],
+          OR: [{ id: tenantIdentifier }, { subdomain: tenantIdentifier }],
           status: 'ACTIVE',
+        },
+        include: {
+          databaseConfig: true,
         },
       });
 
@@ -156,24 +159,26 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
-      // Build info object
+      // Build info object - map from separated tables
       const info: TenantInfo = {
         id: tenant.id,
         subdomain: tenant.subdomain,
-        type: tenant.type,
+        type: tenant.dbType,
         status: tenant.status,
-        schemaName: tenant.schemaName || undefined,
-        databaseName: tenant.databaseName || undefined,
-        databaseHost: tenant.databaseHost || undefined,
-        databasePort: tenant.databasePort || undefined,
-        databaseUsername: tenant.databaseUsername
-          ? this.decrypt(tenant.databaseUsername)
+        // For SHARED tenants: schema name
+        schemaName: tenant.databaseConfig?.dbSchema || undefined,
+        // For DEDICATED tenants: database configuration from TenantDatabaseConfig table
+        databaseName: tenant.databaseConfig?.dbName || undefined,
+        databaseHost: tenant.databaseConfig?.dbHost || undefined,
+        databasePort: tenant.databaseConfig?.dbPort || undefined,
+        databaseUsername: tenant.databaseConfig?.dbUsername
+          ? this.decrypt(tenant.databaseConfig.dbUsername)
           : undefined,
-        databasePassword: tenant.databasePassword
-          ? this.decrypt(tenant.databasePassword)
+        databasePassword: tenant.databaseConfig?.dbPassword
+          ? this.decrypt(tenant.databaseConfig.dbPassword)
           : undefined,
-        databaseSslMode: tenant.databaseSslMode || undefined,
-        connectionPoolSize: tenant.connectionPoolSize || undefined,
+        databaseSslMode: tenant.databaseConfig?.dbSslMode || undefined,
+        connectionPoolSize: tenant.databaseConfig?.connectionPoolSize || undefined,
       };
 
       // Cache by both ID and slug
