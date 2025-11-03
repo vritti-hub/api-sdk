@@ -9,7 +9,7 @@ export default defineConfig({
 
   // Generate .d.ts files - resolve() function allows handling optional deps
   dts: {
-    resolve: true,
+    resolve: false,
     compilerOptions: {
       skipLibCheck: true,
     },
