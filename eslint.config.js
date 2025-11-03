@@ -13,6 +13,17 @@ export default tseslint.config(
     },
   },
   {
+    files: ['tsup.config.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          allowDefaultProject: ['tsup.config.ts'],
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     ignores: ['dist/**', 'node_modules/**', '*.config.js'],
   },
 );
