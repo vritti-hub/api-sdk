@@ -7,14 +7,16 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import * as jwt from 'jsonwebtoken';
+import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
+import * as jwt from 'jsonwebtoken';
 import { PrimaryDatabaseService } from '../database/services/primary-database.service';
 import { TenantResolverService } from '../services/tenant-resolver.service';
 
 // Type for decoded JWT token
 interface DecodedToken {
-  sub?: string;
+  userId?: string;
+  type?: string;
   exp?: number;
   nbf?: number;
   iat?: number;
@@ -24,25 +26,29 @@ interface DecodedToken {
 /**
  * Vritti Authentication Guard - Validates JWT tokens and tenant context
  *
- * This guard performs comprehensive validation and allows only authenticated users.
- * Does NOT attach anything to the request - purely for validation.
+ * This guard performs comprehensive validation and attaches user data to request.
  *
  * Validation Flow:
  * 1. Checks if endpoint is marked with @Public() decorator → skip all validation
- * 2. Validates access token from Authorization header:
- *    - JWT signature verification using JWT_SECRET from env
- *    - Expiry (exp) claim validation
- *    - Not-Before (nbf) claim validation
- * 3. Validates refresh token from cloud-session-id cookie:
- *    - JWT signature verification using JWT_REFRESH_SECRET (or JWT_SECRET fallback)
- *    - Expiry (exp) claim validation
- *    - Not-Before (nbf) claim validation
- * 4. Extracts tenant identifier (subdomain or headers)
- * 5. Validates tenant exists and is ACTIVE in database
+ * 2. Checks if endpoint is marked with @Onboarding() decorator:
+ *    - Requires token type='onboarding'
+ *    - Validates JWT signature and expiry only
+ *    - Skips tenant and refresh token validation
+ *    - Attaches user data to request.user
+ * 3. For regular endpoints (no decorator):
+ *    - Rejects tokens with type='onboarding'
+ *    - Validates access token (JWT signature, expiry, nbf)
+ *    - Validates refresh token from cloud-session-id cookie
+ *    - Validates tenant exists and is ACTIVE
+ *    - Attaches user data to request.user
  *
  * Token Format:
  * - Access Token: "Authorization: Bearer <jwt_token>"
  * - Refresh Token: "cloud-session-id" cookie
+ *
+ * Token Types:
+ * - type='onboarding': Limited access during registration flow (@Onboarding endpoints only)
+ * - type='access': Full access to authenticated endpoints
  *
  * Environment Variables Required:
  * - JWT_SECRET: Secret key to verify access tokens (required)
@@ -53,6 +59,7 @@ interface DecodedToken {
  * - 401: Invalid/expired refresh token
  * - 401: Tenant not found or inactive
  * - 401: Tenant identifier not found
+ * - 401: Token type mismatch (onboarding token on regular endpoint or vice versa)
  *
  * @example
  * // Apply globally in app.module.ts
@@ -66,6 +73,15 @@ interface DecodedToken {
  * @Public()
  * @Post('auth/login')
  * async login(@Body() dto: LoginDto) { ... }
+ *
+ * @example
+ * // Restrict to onboarding tokens with @Onboarding() decorator
+ * @Onboarding()
+ * @Post('onboarding/verify-email')
+ * async verifyEmail(@Request() req) {
+ *   const userId = req.user.id; // Available from guard
+ *   ...
+ * }
  */
 @Injectable()
 export class VrittiAuthGuard implements CanActivate {
@@ -74,6 +90,7 @@ export class VrittiAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
+    private readonly jwtService: JwtService,
     private readonly tenantResolver: TenantResolverService,
     private readonly primaryDatabase: PrimaryDatabaseService,
   ) {}
@@ -92,18 +109,57 @@ export class VrittiAuthGuard implements CanActivate {
       return true;
     }
 
+    // Step 2: Check if endpoint is marked as @Onboarding()
+    const isOnboarding = this.reflector.getAllAndOverride<boolean>('isOnboarding', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     try {
-      // Step 2: Validate access token from Authorization header
+      // Extract and validate access token
       const accessToken = this.extractAccessToken(request);
       if (!accessToken) {
         this.logger.warn('Access token not found in Authorization header');
         throw new UnauthorizedException('Access token not found');
       }
 
-      this.validateAccessToken(accessToken);
+      // Decode token to check type (without full validation yet)
+      const decodedToken = this.jwtService.decode(accessToken) as DecodedToken;
+      if (!decodedToken) {
+        this.logger.warn('Failed to decode access token');
+        throw new UnauthorizedException('Invalid token format');
+      }
+
+      // Step 3: Handle @Onboarding endpoints
+      if (isOnboarding) {
+        // Only accept onboarding tokens
+        if (decodedToken.type !== 'onboarding') {
+          this.logger.warn('Onboarding endpoint requires onboarding token');
+          throw new UnauthorizedException('This endpoint requires an onboarding token');
+        }
+
+        // Validate JWT signature and expiry only
+        const validatedToken = this.validateAccessToken(accessToken);
+        this.logger.debug('Onboarding token validated successfully');
+
+        // Attach user data to request (use userId field from our tokens, fallback to sub for standard JWT)
+        const userId = (validatedToken as any).userId;
+        (request as any).user = { id: userId };
+
+        return true;
+      }
+
+      // Step 4: Handle regular endpoints - reject onboarding tokens
+      if (decodedToken.type === 'onboarding') {
+        this.logger.warn('Regular endpoint accessed with onboarding token');
+        throw new UnauthorizedException('Onboarding tokens cannot access this endpoint');
+      }
+
+      // Step 5: Validate access token
+      const validatedToken = this.validateAccessToken(accessToken);
       this.logger.debug('Access token validated successfully');
 
-      // Step 3: Validate refresh token from cloud-session-id cookie
+      // Step 6: Validate refresh token from cloud-session-id cookie
       const refreshToken = this.extractRefreshToken(request);
       if (!refreshToken) {
         this.logger.warn('Refresh token (cloud-session-id) not found in cookies');
@@ -113,7 +169,11 @@ export class VrittiAuthGuard implements CanActivate {
       this.validateRefreshToken(refreshToken);
       this.logger.debug('Refresh token validated successfully');
 
-      // Step 4: Extract tenant identifier using TenantResolverService
+      // Step 7: Attach user data to request (use userId field from our tokens, fallback to sub for standard JWT)
+      const userId = (validatedToken as any).userId;
+      (request as any).user = { id: userId };
+
+      // Step 8: Extract tenant identifier using TenantResolverService
       const tenantIdentifier = this.tenantResolver.resolveTenantIdentifier(request);
 
       if (!tenantIdentifier) {
@@ -123,13 +183,13 @@ export class VrittiAuthGuard implements CanActivate {
 
       this.logger.debug(`Tenant identifier extracted: ${tenantIdentifier}`);
 
-      // Step 5: Skip database validation for platform admin (cloud.vritti.com)
+      // Step 9: Skip database validation for platform admin (cloud.vritti.com)
       if (tenantIdentifier === 'cloud') {
         this.logger.debug('Platform admin access detected, skipping tenant database validation');
         return true;
       }
 
-      // Step 6: Fetch tenant details from primary database
+      // Step 10: Fetch tenant details from primary database
       const tenantInfo = await this.primaryDatabase.getTenantInfo(tenantIdentifier);
 
       if (!tenantInfo) {
@@ -137,7 +197,7 @@ export class VrittiAuthGuard implements CanActivate {
         throw new UnauthorizedException('Invalid tenant');
       }
 
-      // Step 7: Validate tenant is ACTIVE
+      // Step 11: Validate tenant is ACTIVE
       if (tenantInfo.status !== 'ACTIVE') {
         this.logger.warn(`Tenant ${tenantIdentifier} has status: ${tenantInfo.status}`);
         throw new UnauthorizedException(`Tenant is ${tenantInfo.status}`);
@@ -159,35 +219,24 @@ export class VrittiAuthGuard implements CanActivate {
    * Validate access token with proper expiry checks
    * Throws UnauthorizedException if token is invalid or expired
    */
-  private validateAccessToken(token: string): void {
-    const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    if (!jwtSecret) {
-      this.logger.error('JWT_SECRET not configured in environment');
-      throw new UnauthorizedException('Server configuration error');
-    }
-
+  private validateAccessToken(token: string): DecodedToken {
     try {
-      const decoded = jwt.verify(token, jwtSecret, {
-        algorithms: ['HS256', 'HS512', 'RS256'],
-      }) as DecodedToken;
+      const decoded = this.jwtService.verify<DecodedToken>(token);
 
-      this.logger.debug(`Access token decoded for user: ${decoded.sub}`);
+      this.logger.debug(`Access token decoded for user: ${(decoded as any).userId}`);
 
-      // Check expiry explicitly
+      // Check expiry explicitly (JwtService already validates, but we log it)
       if (decoded.exp) {
         const expiryTime = decoded.exp * 1000; // Convert to milliseconds
         const currentTime = Date.now();
-
-        if (currentTime > expiryTime) {
-          this.logger.warn('Access token has expired');
-          throw new UnauthorizedException('Access token has expired');
-        }
 
         const timeRemaining = expiryTime - currentTime;
         this.logger.debug(
           `Access token valid for ${Math.floor(timeRemaining / 1000)} more seconds`,
         );
       }
+
+      return decoded;
     } catch (error: unknown) {
       if (error instanceof UnauthorizedException) {
         throw error;
@@ -239,7 +288,7 @@ export class VrittiAuthGuard implements CanActivate {
         algorithms: ['HS256', 'HS512', 'RS256'],
       }) as DecodedToken;
 
-      this.logger.debug(`Refresh token decoded for user: ${decoded.sub}`);
+      this.logger.debug(`Refresh token decoded for user: ${(decoded as any).userId}`);
 
       // Check expiry explicitly
       if (decoded.exp) {

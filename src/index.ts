@@ -1,5 +1,6 @@
-// Core module
+// Core modules
 export { DatabaseModule } from './database/database.module';
+export { AuthConfigModule } from './auth/auth-config.module';
 
 // Services
 export { PrimaryDatabaseService } from './database/services/primary-database.service';
@@ -17,6 +18,7 @@ export { TenantContextInterceptor } from './interceptors/tenant-context.intercep
 // Decorators
 export { Tenant } from './database/decorators/tenant.decorator';
 export { Public } from './decorators/public.decorator';
+export { Onboarding } from './decorators/onboarding.decorator';
 
 // Interfaces
 export * from './database/interfaces';
