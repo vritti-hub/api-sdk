@@ -11,7 +11,6 @@ import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
 import * as jwt from 'jsonwebtoken';
 import { PrimaryDatabaseService } from '../database/services/primary-database.service';
-import { TenantResolverService } from '../services/tenant-resolver.service';
 
 // Type for decoded JWT token
 interface DecodedToken {
@@ -91,9 +90,25 @@ export class VrittiAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-    private readonly tenantResolver: TenantResolverService,
+
     private readonly primaryDatabase: PrimaryDatabaseService,
   ) {}
+
+  /**
+   * Extract tenant from HTTP headers
+   * Checks x-tenant-id and x-subdomain headers
+   *
+   * @param request FastifyRequest or Express Request
+   * @returns Tenant identifier from headers or null
+   */
+  private extractFromHeaders(request: FastifyRequest | any): string | null {
+    const getHeader = (key: string) => {
+      const value = request.headers?.[key];
+      return Array.isArray(value) ? value[0] : value;
+    };
+
+    return getHeader('x-tenant-id') || getHeader('x-subdomain') || null;
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
@@ -174,7 +189,7 @@ export class VrittiAuthGuard implements CanActivate {
       (request as any).user = { id: userId };
 
       // Step 8: Extract tenant identifier using TenantResolverService
-      const tenantIdentifier = this.tenantResolver.resolveTenantIdentifier(request);
+      const tenantIdentifier = this.extractFromHeaders(request);
 
       if (!tenantIdentifier) {
         this.logger.warn('Tenant identifier not found in request');

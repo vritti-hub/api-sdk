@@ -14,7 +14,6 @@ import { DATABASE_MODULE_OPTIONS } from '../database/constants';
 import type { DatabaseModuleOptions } from '../database/interfaces';
 import { PrimaryDatabaseService } from '../database/services/primary-database.service';
 import { TenantContextService } from '../database/services/tenant-context.service';
-import { TenantResolverService } from '../services/tenant-resolver.service';
 
 /**
  * Interceptor that extracts tenant context from HTTP requests (Gateway Mode)
@@ -41,10 +40,25 @@ export class TenantContextInterceptor implements NestInterceptor {
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly primaryDatabase: PrimaryDatabaseService,
-    private readonly tenantResolver: TenantResolverService,
     @Inject(DATABASE_MODULE_OPTIONS)
     private readonly options: DatabaseModuleOptions,
   ) {}
+
+  /**
+   * Extract tenant from HTTP headers
+   * Checks x-tenant-id and x-subdomain headers
+   *
+   * @param request FastifyRequest or Express Request
+   * @returns Tenant identifier from headers or null
+   */
+  private extractFromHeaders(request: FastifyRequest | any): string | null {
+    const getHeader = (key: string) => {
+      const value = request.headers?.[key];
+      return Array.isArray(value) ? value[0] : value;
+    };
+
+    return getHeader('x-tenant-id') || getHeader('x-subdomain') || null;
+  }
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
@@ -53,7 +67,7 @@ export class TenantContextInterceptor implements NestInterceptor {
 
     try {
       // Extract tenant identifier using TenantResolverService (no code duplication)
-      const tenantIdentifier = this.tenantResolver.resolveTenantIdentifier(request);
+      const tenantIdentifier = this.extractFromHeaders(request);
 
       if (!tenantIdentifier) {
         throw new UnauthorizedException('Tenant identifier not found in request');

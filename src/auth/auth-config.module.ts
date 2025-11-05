@@ -3,8 +3,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { VrittiAuthGuard } from '../guards/vritti-auth.guard';
-import { TenantResolverService } from '../services/tenant-resolver.service';
-import { PrimaryDatabaseService } from '../database/services/primary-database.service';
 
 /**
  * Global authentication configuration module

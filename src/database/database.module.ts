@@ -5,7 +5,6 @@ import type { DatabaseModuleOptions } from './interfaces';
 import { PrimaryDatabaseService } from './services/primary-database.service';
 import { TenantContextService } from './services/tenant-context.service';
 import { TenantDatabaseService } from './services/tenant-database.service';
-import { TenantResolverService } from '../services/tenant-resolver.service';
 
 /**
  * Dynamic module for multi-tenant database management
@@ -68,18 +67,12 @@ export class DatabaseModule {
       TenantDatabaseService,
       TenantContextService,
       PrimaryDatabaseService,
-      TenantResolverService,
     ];
 
     return {
       module: DatabaseModule,
       providers,
-      exports: [
-        TenantDatabaseService,
-        TenantContextService,
-        PrimaryDatabaseService,
-        TenantResolverService,
-      ],
+      exports: [TenantDatabaseService, TenantContextService, PrimaryDatabaseService],
     };
   }
 
@@ -118,15 +111,8 @@ export class DatabaseModule {
         TenantContextService,
         PrimaryDatabaseService,
         TenantDatabaseService,
-        TenantResolverService,
       ],
-      exports: [
-        TenantDatabaseService,
-        TenantContextService,
-        PrimaryDatabaseService,
-        TenantResolverService,
-        asyncProvider,
-      ],
+      exports: [TenantDatabaseService, TenantContextService, PrimaryDatabaseService, asyncProvider],
     };
   }
 }

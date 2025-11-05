@@ -14,7 +14,6 @@ import { DATABASE_MODULE_OPTIONS } from '../constants';
 import type { DatabaseModuleOptions } from '../interfaces';
 import { PrimaryDatabaseService } from '../services/primary-database.service';
 import { TenantContextService } from '../services/tenant-context.service';
-import { extractSubdomain } from '../utils/subdomain-parser.util';
 
 /**
  * Interceptor that extracts tenant context from HTTP requests (Gateway Mode)
@@ -97,43 +96,10 @@ export class TenantContextInterceptor implements NestInterceptor {
   }
 
   /**
-   * Extract tenant identifier: tries subdomain first, then falls back to header
-   */
-  private extractTenantIdentifier(request: FastifyRequest): string | null {
-    // Try subdomain first
-    let tenantIdentifier = this.extractFromSubdomain(request);
-
-    // Fallback to header if subdomain not found
-    if (!tenantIdentifier) {
-      tenantIdentifier = this.extractFromHeader(request);
-      if (tenantIdentifier) {
-        this.logger.debug('Using tenant from header (subdomain not found)');
-      }
-    }
-
-    return tenantIdentifier;
-  }
-
-  /**
-   * Extract tenant from subdomain
-   * @example acme.vritti.com → 'acme'
-   */
-  private extractFromSubdomain(request: FastifyRequest): string | null {
-    // Check if middleware already extracted it
-    if ((request as any).subdomain) {
-      return (request as any).subdomain;
-    }
-
-    // Otherwise parse from host header
-    const host = request.headers?.host || request.hostname;
-    return extractSubdomain(host);
-  }
-
-  /**
    * Extract tenant from HTTP headers
    * Checks x-tenant-id and x-subdomain headers
    */
-  private extractFromHeader(request: FastifyRequest): string | null {
+  private extractTenantIdentifier(request: FastifyRequest): string | null {
     const getHeader = (key: string) => {
       const value = request.headers?.[key];
       return Array.isArray(value) ? value[0] : value;
