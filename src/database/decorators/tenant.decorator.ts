@@ -21,9 +21,9 @@ import { TenantContextService } from '../services/tenant-context.service';
  * @Get('info')
  * async getTenantInfo(@Tenant() tenant: TenantInfo) {
  *   return {
- *     tenantId: tenant.tenantId,
- *     tenantSlug: tenant.tenantSlug,
- *     tenantType: tenant.tenantType,
+ *     id: tenant.id,
+ *     subdomain: tenant.subdomain,
+ *     type: tenant.type,
  *   };
  * }
  *
@@ -34,7 +34,7 @@ import { TenantContextService } from '../services/tenant-context.service';
  *   @Body() dto: CreateUserDto,
  *   @Tenant() tenant: TenantInfo,
  * ) {
- *   this.logger.log(`Creating user for tenant: ${tenant.tenantSlug}`);
+ *   this.logger.log(`Creating user for tenant: ${tenant.subdomain}`);
  *   // ...
  * }
  *
@@ -42,7 +42,7 @@ import { TenantContextService } from '../services/tenant-context.service';
  * // Conditional business logic
  * @Get('features')
  * async getFeatures(@Tenant() tenant: TenantInfo) {
- *   if (tenant.tenantType === 'ENTERPRISE') {
+ *   if (tenant.type === 'ENTERPRISE') {
  *     return ['feature-a', 'feature-b', 'feature-c'];
  *   }
  *   return ['feature-a'];

@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   Logger,
+  Scope,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +11,8 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { FastifyRequest } from 'fastify';
 import * as jwt from 'jsonwebtoken';
-import { PrimaryDatabaseService } from '../database/services/primary-database.service';
+import { PrimaryDatabaseService } from '../../database/services/primary-database.service';
+import { RequestService } from '../../request/services/request.service';
 
 // Type for decoded JWT token
 interface DecodedToken {
@@ -37,13 +39,13 @@ interface DecodedToken {
  * 3. For regular endpoints (no decorator):
  *    - Rejects tokens with type='onboarding'
  *    - Validates access token (JWT signature, expiry, nbf)
- *    - Validates refresh token from cloud-session-id cookie
+ *    - Validates refresh token from session-id cookie
  *    - Validates tenant exists and is ACTIVE
  *    - Attaches user data to request.user
  *
  * Token Format:
  * - Access Token: "Authorization: Bearer <jwt_token>"
- * - Refresh Token: "cloud-session-id" cookie
+ * - Refresh Token: "session-id" cookie
  *
  * Token Types:
  * - type='onboarding': Limited access during registration flow (@Onboarding endpoints only)
@@ -61,11 +63,17 @@ interface DecodedToken {
  * - 401: Token type mismatch (onboarding token on regular endpoint or vice versa)
  *
  * @example
- * // Apply globally in app.module.ts
- * {
- *   provide: APP_GUARD,
- *   useClass: VrittiAuthGuard,
- * }
+ * // Automatically registered by AuthConfigModule.forRootAsync()
+ * // No manual registration needed
+ * //
+ * // Internal registration uses useExisting pattern:
+ * // providers: [
+ * //   VrittiAuthGuard,
+ * //   {
+ * //     provide: APP_GUARD,
+ * //     useExisting: VrittiAuthGuard,
+ * //   },
+ * // ]
  *
  * @example
  * // Bypass guard with @Public() decorator
@@ -82,7 +90,7 @@ interface DecodedToken {
  *   ...
  * }
  */
-@Injectable()
+@Injectable({ scope: Scope.REQUEST })
 export class VrittiAuthGuard implements CanActivate {
   private readonly logger = new Logger(VrittiAuthGuard.name);
 
@@ -90,25 +98,9 @@ export class VrittiAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
-
     private readonly primaryDatabase: PrimaryDatabaseService,
+    private readonly requestService: RequestService,
   ) {}
-
-  /**
-   * Extract tenant from HTTP headers
-   * Checks x-tenant-id and x-subdomain headers
-   *
-   * @param request FastifyRequest or Express Request
-   * @returns Tenant identifier from headers or null
-   */
-  private extractFromHeaders(request: FastifyRequest | any): string | null {
-    const getHeader = (key: string) => {
-      const value = request.headers?.[key];
-      return Array.isArray(value) ? value[0] : value;
-    };
-
-    return getHeader('x-tenant-id') || getHeader('x-subdomain') || null;
-  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
@@ -132,7 +124,7 @@ export class VrittiAuthGuard implements CanActivate {
 
     try {
       // Extract and validate access token
-      const accessToken = this.extractAccessToken(request);
+      const accessToken = this.requestService.getAccessToken();
       if (!accessToken) {
         this.logger.warn('Access token not found in Authorization header');
         throw new UnauthorizedException('Access token not found');
@@ -174,10 +166,10 @@ export class VrittiAuthGuard implements CanActivate {
       const validatedToken = this.validateAccessToken(accessToken);
       this.logger.debug('Access token validated successfully');
 
-      // Step 6: Validate refresh token from cloud-session-id cookie
-      const refreshToken = this.extractRefreshToken(request);
+      // Step 6: Validate refresh token from session-id cookie
+      const refreshToken = this.requestService.getRefreshToken();
       if (!refreshToken) {
-        this.logger.warn('Refresh token (cloud-session-id) not found in cookies');
+        this.logger.warn('Refresh token (session-id) not found in cookies');
         throw new UnauthorizedException('Refresh token not found');
       }
 
@@ -188,8 +180,8 @@ export class VrittiAuthGuard implements CanActivate {
       const userId = (validatedToken as any).userId;
       (request as any).user = { id: userId };
 
-      // Step 8: Extract tenant identifier using TenantResolverService
-      const tenantIdentifier = this.extractFromHeaders(request);
+      // Step 8: Extract tenant identifier using RequestService
+      const tenantIdentifier = this.requestService.getTenantIdentifier();
 
       if (!tenantIdentifier) {
         this.logger.warn('Tenant identifier not found in request');
@@ -343,41 +335,6 @@ export class VrittiAuthGuard implements CanActivate {
 
       this.logger.error('Unexpected error validating refresh token', error);
       throw new UnauthorizedException('Refresh token validation failed');
-    }
-  }
-
-  /**
-   * Extract access token from Authorization header
-   * Expected format: "Bearer <token>"
-   */
-  private extractAccessToken(request: FastifyRequest): string | null {
-    const authHeader = request.headers?.authorization;
-    if (!authHeader) {
-      return null;
-    }
-
-    const [type, token] = authHeader.split(' ') ?? [];
-    return type === 'Bearer' && token ? token : null;
-  }
-
-  /**
-   * Extract refresh token from cloud-session-id cookie
-   */
-  private extractRefreshToken(request: FastifyRequest): string | null {
-    try {
-      // Try Fastify cookies property (can be undefined until plugin is registered)
-      const cookies = (request as unknown as { cookies?: Record<string, string> }).cookies;
-      if (cookies && typeof cookies === 'object') {
-        const cloudSessionId = cookies['cloud-session-id'];
-        if (cloudSessionId) {
-          return cloudSessionId;
-        }
-      }
-
-      return null;
-    } catch (error: unknown) {
-      this.logger.error('Error extracting refresh token from cookies', error);
-      return null;
     }
   }
 }

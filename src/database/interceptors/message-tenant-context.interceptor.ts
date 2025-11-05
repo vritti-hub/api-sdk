@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { TenantInfo } from '../interfaces';
+import type { TenantInfo } from '../interfaces';
 import { TenantContextService } from '../services/tenant-context.service';
 
 /**
@@ -33,11 +33,14 @@ import { TenantContextService } from '../services/tenant-context.service';
  * }
  *
  * @example
- * // In microservice module
- * {
- *   provide: APP_INTERCEPTOR,
- *   useClass: MessageTenantContextInterceptor,
- * }
+ * // Automatically registered by DatabaseModule.forMicroservice()
+ * // No manual registration needed
+ * DatabaseModule.forMicroservice({
+ *   inject: [ConfigService],
+ *   useFactory: (config: ConfigService) => ({
+ *     prismaClientConstructor: PrismaClient,
+ *   }),
+ * })
  */
 @Injectable({ scope: Scope.REQUEST })
 export class MessageTenantContextInterceptor implements NestInterceptor {

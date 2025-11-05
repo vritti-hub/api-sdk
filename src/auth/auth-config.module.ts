@@ -1,8 +1,9 @@
 import { DynamicModule, Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD, Reflector } from '@nestjs/core';
+import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
-import { VrittiAuthGuard } from '../guards/vritti-auth.guard';
+import { RequestModule } from '../request/request.module';
+import { VrittiAuthGuard } from './guards/vritti-auth.guard';
 
 /**
  * Global authentication configuration module
@@ -28,8 +29,8 @@ import { VrittiAuthGuard } from '../guards/vritti-auth.guard';
  *     // Auth configuration (global guard + JWT)
  *     AuthConfigModule.forRootAsync(),
  *
- *     // Database configuration
- *     DatabaseModule.forRootAsync({
+ *     // Database configuration (Gateway mode)
+ *     DatabaseModule.forServer({
  *       useFactory: (config: ConfigService) => ({
  *         primaryDb: {
  *           host: config.get('PRIMARY_DB_HOST'),
@@ -82,6 +83,7 @@ export class AuthConfigModule {
       module: AuthConfigModule,
       imports: [
         ConfigModule,
+        RequestModule,
         JwtModule.registerAsync({
           imports: [ConfigModule],
           inject: [ConfigService],
@@ -94,11 +96,6 @@ export class AuthConfigModule {
         }),
       ],
       providers: [
-        // VrittiAuthGuard is provided but relies on TenantResolverService and PrimaryDatabaseService
-        // which are provided by DatabaseModule. Make sure DatabaseModule is imported before AuthConfigModule
-        // or import DatabaseModule in the consuming application.
-        Reflector,
-        VrittiAuthGuard,
         {
           provide: APP_GUARD,
           useClass: VrittiAuthGuard,
@@ -106,7 +103,6 @@ export class AuthConfigModule {
       ],
       exports: [
         JwtModule, // Export for use in other modules (e.g., generating tokens)
-        VrittiAuthGuard,
       ],
     };
   }

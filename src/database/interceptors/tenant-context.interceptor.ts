@@ -1,7 +1,6 @@
 import {
   CallHandler,
   ExecutionContext,
-  Inject,
   Injectable,
   Logger,
   NestInterceptor,
@@ -10,8 +9,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Observable } from 'rxjs';
-import { DATABASE_MODULE_OPTIONS } from '../constants';
-import type { DatabaseModuleOptions } from '../interfaces';
+import { RequestService } from '../../request';
 import { PrimaryDatabaseService } from '../services/primary-database.service';
 import { TenantContextService } from '../services/tenant-context.service';
 
@@ -19,13 +17,13 @@ import { TenantContextService } from '../services/tenant-context.service';
  * Interceptor that extracts tenant context from HTTP requests (Gateway Mode)
  *
  * This interceptor runs BEFORE the controller and:
- * 1. Extracts tenant identifier from request (tries subdomain first, then falls back to header)
+ * 1. Extracts tenant identifier from request using TenantResolverService
  * 2. Queries primary database for tenant configuration
  * 3. Stores tenant info in REQUEST-SCOPED TenantContextService
  *
  * Tenant resolution order:
  * - First: Subdomain (e.g., acme.vritti.com → 'acme')
- * - Fallback: x-tenant-id or x-tenant-slug header
+ * - Fallback: x-tenant-id or x-subdomain header
  *
  * Only used in API Gateway. Microservices use MessageTenantContextInterceptor instead.
  *
@@ -40,18 +38,17 @@ export class TenantContextInterceptor implements NestInterceptor {
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly primaryDatabase: PrimaryDatabaseService,
-    @Inject(DATABASE_MODULE_OPTIONS)
-    private readonly options: DatabaseModuleOptions,
+    private readonly requestService: RequestService,
   ) {}
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<FastifyRequest>();
 
     this.logger.debug(`Processing request: ${request.method} ${request.url}`);
 
     try {
-      // Extract tenant identifier from request
-      const tenantIdentifier = this.extractTenantIdentifier(request);
+      // Extract tenant identifier using RequestService (no code duplication)
+      const tenantIdentifier = this.requestService.getTenantIdentifier();
 
       if (!tenantIdentifier) {
         throw new UnauthorizedException('Tenant identifier not found in request');
@@ -93,18 +90,5 @@ export class TenantContextInterceptor implements NestInterceptor {
     }
 
     return next.handle();
-  }
-
-  /**
-   * Extract tenant from HTTP headers
-   * Checks x-tenant-id and x-subdomain headers
-   */
-  private extractTenantIdentifier(request: FastifyRequest): string | null {
-    const getHeader = (key: string) => {
-      const value = request.headers?.[key];
-      return Array.isArray(value) ? value[0] : value;
-    };
-
-    return getHeader('x-tenant-id') || getHeader('x-subdomain') || null;
   }
 }
