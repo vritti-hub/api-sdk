@@ -93,7 +93,7 @@ export class DatabaseModule {
     useFactory: (...args: any[]) => Promise<DatabaseModuleOptions> | DatabaseModuleOptions;
     inject?: any[];
   }): DynamicModule {
-    return this.createDynamicModule(options, 'gateway');
+    return this.createDynamicModule(options, 'server');
   }
 
   /**
@@ -134,7 +134,7 @@ export class DatabaseModule {
       useFactory: (...args: any[]) => Promise<DatabaseModuleOptions> | DatabaseModuleOptions;
       inject?: any[];
     },
-    mode: 'gateway' | 'microservice',
+    mode: 'server' | 'microservice',
   ): DynamicModule {
     const asyncProvider: Provider = {
       provide: DATABASE_MODULE_OPTIONS,
@@ -150,7 +150,7 @@ export class DatabaseModule {
     ];
 
     // Conditionally add interceptor based on mode
-    if (mode === 'gateway') {
+    if (mode === 'server') {
       providers.push({
         provide: APP_INTERCEPTOR,
         useClass: TenantContextInterceptor,
