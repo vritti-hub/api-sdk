@@ -1,7 +1,7 @@
 {
   "name": "@vritti/api-sdk",
   "type": "module",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -42,6 +42,7 @@
     "clean": "rm -rf dist",
     "prepublishOnly": "yarn type-check && yarn test && yarn build"
   },
+  "dependencies": {},
   "peerDependencies": {
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^3.0.0",

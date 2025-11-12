@@ -232,16 +232,15 @@ export class PrimaryDatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get primary database client for direct database access
-   *
-   * This is useful for platform admin operations (creating tenants, billing, etc.)
+   * Get the Prisma client for the primary database.
+   * This is a synchronous property that returns the initialized Prisma client.
    *
    * @returns Primary database client instance
    * @throws Error if primary database client is not initialized
    */
-  getPrimaryDbClient<T = any>(): T {
+  get prismaClient(): any {
     if (!this.primaryDbClient) {
-      throw new Error('Primary database client not initialized. Are you in gateway mode?');
+      throw new Error('Primary database client not initialized');
     }
     return this.primaryDbClient;
   }

@@ -46,6 +46,18 @@ export class TenantDatabaseService implements OnModuleDestroy {
   }
 
   /**
+   * Get the Prisma client for the current tenant's database.
+   * This returns the tenant-scoped database client.
+   *
+   * @returns Tenant-scoped database client instance
+   * @throws UnauthorizedException if tenant context not set
+   * @throws InternalServerErrorException if connection fails
+   */
+  get prismaClient(): any {
+    return this.getDbClient();
+  }
+
+  /**
    * Get tenant-scoped database client for the current request/message
    *
    * This method:
@@ -61,7 +73,7 @@ export class TenantDatabaseService implements OnModuleDestroy {
    * const dbClient = await tenantDatabase.getDbClient<PrismaClient>();
    * const users = await dbClient.user.findMany();
    */
-  async getDbClient<T = any>(): Promise<T> {
+  private async getDbClient<T = any>(): Promise<T> {
     const tenant = this.tenantContext.getTenant();
 
     const cacheKey = this.buildCacheKey(tenant);

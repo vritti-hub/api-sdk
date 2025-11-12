@@ -219,6 +219,119 @@ export class UsersService {
 }
 ```
 
+### Using Base Repositories
+
+The SDK provides base repository classes for common CRUD operations with automatic tenant scoping:
+
+#### Primary Database Repositories
+
+For entities in the primary/platform database (tenants, users, sessions, etc.):
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { PrimaryBaseRepository, PrimaryDatabaseService } from '@vritti/api-sdk';
+import { User, CreateUserDto, UpdateUserDto } from './types';
+
+@Injectable()
+export class UserRepository extends PrimaryBaseRepository<
+  User,
+  CreateUserDto,
+  UpdateUserDto
+> {
+  constructor(database: PrimaryDatabaseService) {
+    // Use model delegate pattern - type-safe with IDE autocomplete!
+    super(database, (prisma) => prisma.user);
+  }
+
+  // Add custom methods as needed
+  async findByEmail(email: string): Promise<User | null> {
+    return this.model.findUnique({ where: { email } });
+  }
+
+  async findActiveUsers(): Promise<User[]> {
+    return this.model.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+}
+```
+
+#### Tenant Database Repositories
+
+For tenant-scoped entities (products, orders, customers, etc.):
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { TenantBaseRepository, TenantDatabaseService } from '@vritti/api-sdk';
+import { Product, CreateProductDto, UpdateProductDto } from './types';
+
+@Injectable()
+export class ProductRepository extends TenantBaseRepository<
+  Product,
+  CreateProductDto,
+  UpdateProductDto
+> {
+  constructor(database: TenantDatabaseService) {
+    // Short syntax is also supported
+    super(database, (p) => p.product);
+  }
+
+  // Custom methods for product-specific queries
+  async findBySku(sku: string): Promise<Product | null> {
+    return this.model.findUnique({ where: { sku } });
+  }
+
+  async findInStock(): Promise<Product[]> {
+    return this.model.findMany({
+      where: { quantity: { gt: 0 } },
+    });
+  }
+}
+```
+
+#### Available Base Repository Methods
+
+Both `PrimaryBaseRepository` and `TenantBaseRepository` provide these methods:
+
+```typescript
+// Create
+await repository.create(data);
+
+// Read
+await repository.findById(id);
+await repository.findOne({ where: { email } });
+await repository.findMany({ where: { status: 'ACTIVE' } });
+
+// Update
+await repository.update(id, data);
+await repository.updateMany({ status: 'PENDING' }, { status: 'ACTIVE' });
+
+// Delete
+await repository.delete(id);
+await repository.deleteMany({ status: 'INACTIVE' });
+
+// Count & Exists
+await repository.count({ status: 'ACTIVE' });
+await repository.exists({ email: 'user@example.com' });
+```
+
+#### Benefits of the Model Delegate Pattern
+
+```typescript
+// ✅ Type-safe with IDE autocomplete
+super(database, (prisma) => prisma.user);
+
+// ✅ Refactor-friendly - TypeScript errors if model name changes
+super(database, (p) => p.emailVerification);
+
+// ✅ Works with complex model names
+super(database, (p) => p.inventoryItem);
+
+// ✅ No hardcoded strings
+// ❌ Old way: super(database, 'user')  // Error-prone!
+```
+
 ## Architecture
 
 ### Gateway Mode (`forServer()`)
