@@ -7,6 +7,7 @@ import {
   Scope,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
 import { Observable } from 'rxjs';
 import { RequestService } from '../../request';
@@ -17,25 +18,43 @@ import { TenantContextService } from '../services/tenant-context.service';
  * Interceptor that extracts tenant context from HTTP requests (Gateway Mode)
  *
  * This interceptor runs BEFORE the controller and:
- * 1. Extracts tenant identifier from request using TenantResolverService
- * 2. Queries primary database for tenant configuration
- * 3. Stores tenant info in REQUEST-SCOPED TenantContextService
+ * 1. Checks if endpoint is marked with @Public() decorator
+ * 2. Extracts tenant identifier from request using RequestService
+ * 3. For public endpoints without tenant info → skip tenant context setup
+ * 4. For all other requests → queries primary database for tenant configuration
+ * 5. Stores tenant info in REQUEST-SCOPED TenantContextService
  *
  * Tenant resolution order:
- * - First: Subdomain (e.g., acme.vritti.com → 'acme')
- * - Fallback: x-tenant-id or x-subdomain header
+ * - First: x-tenant-id header
+ * - Fallback: x-subdomain header
+ *
+ * Public Endpoints:
+ * - Endpoints marked with @Public() decorator can work with OR without tenant context
+ * - If no tenant info in headers → skip tenant context setup (useful for OAuth, registration)
+ * - If tenant info present in headers → setup tenant context (multi-tenant public APIs)
  *
  * Only used in API Gateway. Microservices use MessageTenantContextInterceptor instead.
  *
  * @example
- * // Request: https://acme.vritti.com/api/users
- * // Interceptor extracts "acme" from subdomain, queries primary DB, sets context
+ * // Public endpoint without tenant (OAuth callback, registration)
+ * @Public()
+ * @Get('onboarding/oauth/google')
+ * async oauthGoogle() { ... }
+ * // No x-tenant-id header → skips tenant context
+ *
+ * @example
+ * // Public endpoint with tenant (multi-tenant public API)
+ * @Public()
+ * @Get('public/data')
+ * async getPublicData() { ... }
+ * // x-tenant-id: acme → sets tenant context for 'acme'
  */
 @Injectable({ scope: Scope.REQUEST })
 export class TenantContextInterceptor implements NestInterceptor {
   private readonly logger = new Logger(TenantContextInterceptor.name);
 
   constructor(
+    private readonly reflector: Reflector,
     private readonly tenantContext: TenantContextService,
     private readonly primaryDatabase: PrimaryDatabaseService,
     private readonly requestService: RequestService,
@@ -46,9 +65,21 @@ export class TenantContextInterceptor implements NestInterceptor {
 
     this.logger.debug(`Processing request: ${request.method} ${request.url}`);
 
+    // Check if endpoint is marked as @Public()
+    const isPublic = this.reflector.getAllAndOverride<boolean>('isPublic', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     try {
       // Extract tenant identifier using RequestService (no code duplication)
       const tenantIdentifier = this.requestService.getTenantIdentifier();
+
+      // Skip tenant context for public endpoints without tenant info
+      if (isPublic && !tenantIdentifier) {
+        this.logger.debug('Public endpoint without tenant identifier, skipping tenant context setup');
+        return next.handle();
+      }
 
       if (!tenantIdentifier) {
         throw new UnauthorizedException('Tenant identifier not found in request');
