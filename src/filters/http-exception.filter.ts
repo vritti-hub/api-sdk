@@ -1,0 +1,119 @@
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
+import type { ApiErrorResponse, FieldError } from '../types/error-response.types';
+
+/**
+ * Converts an HTTP status code to its corresponding title string.
+ * Uses the HttpStatus enum to map status codes to human-readable titles.
+ *
+ * @param status - The HTTP status code
+ * @returns The human-readable title for the status code
+ *
+ * @example
+ * getHttpStatusTitle(400) // Returns: "Bad Request"
+ * getHttpStatusTitle(404) // Returns: "Not Found"
+ * getHttpStatusTitle(500) // Returns: "Internal Server Error"
+ */
+export function getHttpStatusTitle(status: number): string {
+  // Find the enum key for the given status code
+  const enumKey = Object.entries(HttpStatus).find(
+    ([key, value]) => value === status && isNaN(Number(key))
+  )?.[0];
+
+  if (!enumKey) {
+    return 'Error';
+  }
+
+  // Convert enum key to title case (e.g., BAD_REQUEST -> Bad Request)
+  return enumKey
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * Global HTTP Exception Filter implementing RFC 7807 Problem Details
+ *
+ * Transforms all exceptions into a standardized RFC 7807 format:
+ * {
+ *   title: string,        // Human-readable status title
+ *   status: number,       // HTTP status code
+ *   detail: string,       // Detailed error description
+ *   errors: FieldError[]  // Field-specific error messages
+ * }
+ *
+ * Handles:
+ * - Custom field exceptions from @vritti/api-sdk (BaseFieldException)
+ * - Class-validator DTO validation errors
+ * - Standard NestJS HTTP exceptions
+ * - Unknown errors
+ */
+@Catch()
+export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<FastifyReply>();
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let errors: FieldError[] = [];
+    let detail = 'Internal server error';
+
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const exceptionResponse = exception.getResponse();
+
+      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+        const responseObj = exceptionResponse as any;
+
+        // Handle custom field exceptions from @vritti/api-sdk
+        if (responseObj.errors && Array.isArray(responseObj.errors)) {
+          errors = responseObj.errors;
+          detail = responseObj.detail || exception.message;
+        }
+        // Handle class-validator DTO validation errors
+        else if (responseObj.message && Array.isArray(responseObj.message)) {
+          errors = responseObj.message.map((msg: any) => {
+            if (typeof msg === 'object' && msg.property && msg.constraints) {
+              return {
+                field: msg.property,
+                message: Object.values(msg.constraints)[0] as string,
+              };
+            }
+            return { message: typeof msg === 'string' ? msg : JSON.stringify(msg) };
+          });
+          detail = 'Validation failed';
+        }
+        // Handle standard NestJS exceptions
+        else if (responseObj.message) {
+          errors = [{ message: Array.isArray(responseObj.message) ? responseObj.message.join(', ') : responseObj.message }];
+          detail = responseObj.error || exception.message;
+        }
+      } else if (typeof exceptionResponse === 'string') {
+        errors = [{ message: exceptionResponse }];
+        detail = exceptionResponse;
+      }
+    } else {
+      // Unknown errors
+      this.logger.error('Unexpected error:', exception);
+      errors = [{ message: 'An unexpected error occurred' }];
+    }
+
+    const problemDetails: ApiErrorResponse = {
+      title: getHttpStatusTitle(status),
+      status,
+      detail,
+      errors,
+    };
+
+    response.status(status).send(problemDetails);
+  }
+}

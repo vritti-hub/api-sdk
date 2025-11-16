@@ -26,3 +26,12 @@ export * from './database/interfaces';
 export { HttpModule } from './http/http.module';
 export { CsrfGuard } from './http/guards/csrf.guard';
 export { HttpExceptionFilter } from './http/filters/http-exception.filter';
+
+// RFC 7807 Filters
+export * from './filters';
+
+// RFC 7807 Types (using named exports to avoid conflicts)
+export type { ProblemDetails, ApiErrorResponse } from './types';
+
+// Exceptions
+export * from './exceptions';
