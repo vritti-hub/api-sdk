@@ -25,9 +25,8 @@ export * from './database/interfaces';
 // HTTP utilities
 export { HttpModule } from './http/http.module';
 export { CsrfGuard } from './http/guards/csrf.guard';
-export { HttpExceptionFilter } from './http/filters/http-exception.filter';
 
-// RFC 7807 Filters
+// RFC 7807 Filters (includes HttpExceptionFilter)
 export * from './filters';
 
 // RFC 7807 Types (using named exports to avoid conflicts)
