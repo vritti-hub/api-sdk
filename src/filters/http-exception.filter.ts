@@ -103,7 +103,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     } else {
       // Unknown errors
-      this.logger.error('Unexpected error:', exception);
+      const errorMessage = exception instanceof Error ? exception.message : 'Unknown error';
+      const stack = exception instanceof Error ? exception.stack : undefined;
+      this.logger.error(`Unexpected error: ${errorMessage}`, stack);
       errors = [{ message: 'An unexpected error occurred' }];
     }
 

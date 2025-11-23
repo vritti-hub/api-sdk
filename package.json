@@ -1,7 +1,7 @@
 {
   "name": "@vritti/api-sdk",
   "type": "module",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -34,8 +34,8 @@
     "dev": "tsx --watch src/index.ts",
     "build": "tsup",
     "type-check": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
-    "test:watch": "tsx --test --watch src/**/*.test.ts",
+    "test": "tsx --test 'src/**/*.test.ts'",
+    "test:watch": "tsx --test --watch 'src/**/*.test.ts'",
     "lint": "eslint src",
     "format": "prettier --write src",
     "format:check": "prettier --check src",
@@ -50,7 +50,9 @@
     "@nestjs/jwt": "^10.0.0",
     "fastify": "^5.0.0",
     "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.0"
+    "rxjs": "^7.8.0",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.38.0",
@@ -72,6 +74,8 @@
     "tsup": "^8.5.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.2"
+    "typescript-eslint": "^8.46.2",
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0"
   }
 }

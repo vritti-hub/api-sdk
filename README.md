@@ -13,6 +13,7 @@ NestJS SDK for multi-tenant applications with automatic database routing, JWT au
 - 🎯 **Request-Scoped Context**: Tenant information available throughout the request lifecycle
 - 🛡️ **Decorators**: `@Public()`, `@Onboarding()`, and `@Tenant()` for flexible access control
 - ⚡ **Zero Configuration**: Auto-registers guards and interceptors
+- 📝 **Unified Logging**: Environment-aware logging with PII masking, correlation IDs, and multi-tenant context
 
 ## Installation
 
@@ -369,6 +370,272 @@ super(database, (p) => p.inventoryItem);
   }
 }
 ```
+
+## Unified Logging
+
+The SDK provides a comprehensive logging system with built-in support for correlation IDs, HTTP logging, and multi-tenant context tracking. Choose between NestJS default logger or Winston with environment-based presets.
+
+### Features
+
+- 🎯 **Dual Provider Support**: Switch between NestJS default Logger and Winston
+- 🌍 **Environment Presets**: Pre-configured settings for development, staging, production, and test
+- 🔗 **Correlation IDs**: Track requests across services with automatic ID generation and propagation
+- 🏢 **Multi-Tenant Context**: Automatically includes tenant and user IDs in logs
+- 📁 **File Logging**: Automatic file rotation with configurable retention
+- 🚀 **HTTP Request/Response Logging**: Automatic logging of all HTTP traffic
+- ⚡ **Zero Configuration**: Works out of the box with sensible defaults
+
+### Quick Start
+
+Import the `LoggerModule` in your application:
+
+```typescript
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { LoggerModule } from '@vritti/api-sdk';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+
+    // Option 1: Simple configuration with environment preset
+    LoggerModule.forRoot({
+      environment: 'development',  // Required: development, staging, production, test
+      appName: 'my-service',
+    }),
+
+    // Option 2: Dynamic configuration with ConfigService
+    LoggerModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        environment: config.get('NODE_ENV', 'development'),
+        appName: config.get('APP_NAME'),
+        provider: config.get('LOG_PROVIDER'),  // 'default' or 'winston'
+        level: config.get('LOG_LEVEL'),        // Optional override
+        format: config.get('LOG_FORMAT'),      // Optional override
+        enableFileLogger: config.get('LOG_TO_FILE') === 'true',
+        enableHttpLogger: true,
+        httpLogger: {
+          enableRequestLog: true,
+          enableResponseLog: true,
+          slowRequestThreshold: 3000,
+        },
+      }),
+      inject: [ConfigService],
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+Inject and use the `LoggerService`:
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { LoggerService } from '@vritti/api-sdk';
+
+@Injectable()
+export class UsersService {
+  constructor(private readonly logger: LoggerService) {}
+
+  async createUser(data: CreateUserDto) {
+    this.logger.log('Creating new user', 'UsersService');
+
+    try {
+      const user = await this.userRepository.create(data);
+      this.logger.log('User created successfully', { userId: user.id });
+      return user;
+    } catch (error) {
+      this.logger.error('Failed to create user', error.stack, 'UsersService');
+      throw error;
+    }
+  }
+}
+```
+
+### Environment Presets
+
+The logger module provides pre-configured settings based on environment:
+
+| Environment | Provider | Level | Format | File Logging | HTTP Logging |
+|------------|----------|-------|--------|--------------|--------------|
+| development | winston | debug | text | No | Yes (verbose) |
+| staging | winston | log | json | Yes | Yes |
+| production | winston | warn | json | Yes | Limited |
+| test | winston | error | json | No | No |
+
+### Provider Selection
+
+Choose between NestJS default Logger or Winston:
+
+```typescript
+// Use NestJS default Logger
+LoggerModule.forRoot({
+  environment: 'development',
+  provider: 'default',  // Simple, built-in NestJS logger
+})
+
+// Use Winston (default)
+LoggerModule.forRoot({
+  environment: 'production',
+  provider: 'winston',  // Advanced features, file logging, etc.
+})
+```
+
+**Environment Variable:**
+```bash
+# In .env file
+LOG_PROVIDER=default  # or 'winston'
+```
+
+**Important:** When using `LOG_PROVIDER=default`, update your `main.ts` to avoid circular references:
+
+```typescript
+async function bootstrap() {
+  const logProvider = process.env.LOG_PROVIDER || 'winston';
+  const useBuiltInLogger = logProvider === 'default';
+
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter(),
+    useBuiltInLogger ? {} : {
+      logger: new LoggerService({
+        environment: process.env.NODE_ENV
+      })
+    },
+  );
+
+  // Only replace logger when using Winston
+  if (!useBuiltInLogger) {
+    const appLogger = app.get(LoggerService);
+    app.useLogger(appLogger);
+  }
+
+  // ... rest of bootstrap
+}
+```
+
+### HTTP Request Logging
+
+HTTP logging is automatically enabled when `enableHttpLogger: true`. The interceptor is registered globally:
+
+```typescript
+LoggerModule.forRoot({
+  environment: 'development',
+  enableHttpLogger: true,
+  httpLogger: {
+    enableRequestLog: true,      // Log incoming requests
+    enableResponseLog: true,     // Log outgoing responses
+    slowRequestThreshold: 3000,  // Warn on requests > 3 seconds
+  },
+})
+```
+
+**Request Log Example:**
+```
+2025-01-23T10:30:45.123Z INFO   [abc123] [HTTP] → POST /api/users
+```
+
+**Response Log Example:**
+```
+2025-01-23T10:30:45.456Z INFO   [abc123] [HTTP] ← 201 POST /api/users (333ms)
+```
+
+**Slow Request Warning:**
+```
+2025-01-23T10:30:50.789Z WARN   [abc123] [HTTP] ← 200 GET /api/reports (4521ms) [SLOW]
+```
+
+### Correlation ID Middleware
+
+Correlation IDs are automatically included in all logs when the middleware is registered:
+
+```typescript
+// In main.ts (Fastify)
+const correlationMiddleware = app.get(CorrelationIdMiddleware);
+const fastifyInstance = app.getHttpAdapter().getInstance();
+fastifyInstance.addHook('onRequest', async (request, reply) => {
+  await correlationMiddleware.onRequest(request as any, reply as any);
+});
+```
+
+The correlation ID appears in all logs:
+```
+2025-01-23T10:30:45.123Z INFO   [abc123] [UsersService] Creating new user
+```
+
+### Custom Configuration
+
+Override preset defaults for specific needs:
+
+```typescript
+LoggerModule.forRoot({
+  environment: 'production',  // Start with production preset
+  level: 'debug',             // Override: use debug level
+  enableFileLogger: true,     // Enable file logging
+  filePath: './logs',         // Custom log directory
+  maxFiles: '30d',           // Keep logs for 30 days
+  httpLogger: {
+    enableRequestLog: true,   // Override: enable request logs in production
+    enableResponseLog: true,
+    slowRequestThreshold: 5000,  // 5 seconds
+  },
+})
+```
+
+### Logging with Metadata
+
+Add custom metadata to enrich your logs (Winston only):
+
+```typescript
+this.logger.logWithMetadata(
+  'log',
+  'Payment processed',
+  {
+    orderId: order.id,
+    amount: order.total,
+    paymentMethod: 'credit_card',
+  },
+  'PaymentService'
+);
+```
+
+### Child Loggers
+
+Create context-specific loggers:
+
+```typescript
+@Injectable()
+export class OrderService {
+  private readonly logger: LoggerService;
+
+  constructor(loggerService: LoggerService) {
+    this.logger = loggerService.child('OrderService');
+  }
+
+  processOrder(orderId: string) {
+    this.logger.log('Processing order', { orderId });
+    // All logs from this logger will include context: "OrderService"
+  }
+}
+```
+
+### Configuration Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `environment` | `string` | Required | Environment preset: `development`, `staging`, `production`, `test` |
+| `provider` | `'default' \| 'winston'` | `'winston'` | Logger implementation to use |
+| `appName` | `string` | - | Application name (included in all logs) |
+| `level` | `string` | Preset | Log level: `error`, `warn`, `log`, `debug`, `verbose` |
+| `format` | `'text' \| 'json'` | Preset | Log output format |
+| `enableFileLogger` | `boolean` | Preset | Enable file-based logging |
+| `filePath` | `string` | `'./logs'` | Directory for log files |
+| `maxFiles` | `string` | `'14d'` | Log retention period |
+| `enableHttpLogger` | `boolean` | Preset | Enable HTTP request/response logging |
+| `httpLogger.enableRequestLog` | `boolean` | Preset | Log incoming HTTP requests |
+| `httpLogger.enableResponseLog` | `boolean` | Preset | Log outgoing HTTP responses |
+| `httpLogger.slowRequestThreshold` | `number` | Preset | Threshold (ms) to warn on slow requests |
 
 ## API Reference
 

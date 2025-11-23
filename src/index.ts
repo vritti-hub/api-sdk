@@ -34,3 +34,6 @@ export type { ProblemDetails, ApiErrorResponse } from './types';
 
 // Exceptions
 export * from './exceptions';
+
+// Logger utilities
+export * from './logger';
